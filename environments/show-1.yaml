@@ -22,6 +22,7 @@ dependencies:
   - xz=5.4.2=h5eee18b_0
   - zlib=1.2.13=h5eee18b_0
   - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu117
       - absl-py==2.0.0
       - accelerate==0.18.0
       - antlr4-python3-runtime==4.9.3

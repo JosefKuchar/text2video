@@ -7,9 +7,16 @@ model = AutoModelForCausalLM.from_pretrained(model_name_or_path,
                                              revision="main")
 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
 
-prompt = "Tell me about AI"
-prompt_template=f'''A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER: {prompt} ASSISTANT:
-
+prompt=f'''The assistant is a expert movie director. It takes user story and transforms it into series of short clip descriptions. The assistant doesn't use pronouns to describe subjects. Each clip is on separate line starting with "*". USER: Story about mom and her daughter going to school. ASSISTANT:
+* Mother is waking up her daughter in the morning.
+* Mother and her daughter both prepare breakfast together in the kitchen.
+* Mom helps her daughter put on her school uniform.
+* Mom and her daughter leave the house and walk towards the school bus stop.
+* The school bus arrives, and they both get on.
+* Mom waves goodbye to her daughter as she gets on the bus.
+* The bus drives away with the daughter inside.
+* Mom watches the bus disappear down the street.
+* Mom goes back inside the house to start her day.</s>USER: Story about a boy who lost his toy car. ASSISTANT:
 '''
 
 print("*** Pipeline:")
@@ -17,12 +24,10 @@ pipe = pipeline(
     "text-generation",
     model=model,
     tokenizer=tokenizer,
-    max_new_tokens=512,
     do_sample=True,
     temperature=0.7,
-    top_p=0.95,
     top_k=40,
-    repetition_penalty=1.1
+    repetition_penalty=1.1,
 )
 
-print(pipe(prompt_template)[0]['generated_text'])
+print(pipe(prompt)[0]['generated_text'])

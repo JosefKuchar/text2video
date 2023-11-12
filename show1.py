@@ -1,5 +1,6 @@
 import os
 import imageio
+import sys
 from PIL import Image
 
 import torch
@@ -7,6 +8,9 @@ import torch.nn.functional as F
 
 from diffusers import IFSuperResolutionPipeline, VideoToVideoSDPipeline
 from diffusers.utils.torch_utils import randn_tensor
+
+# Show 1 repo doesn't have proper file structure
+sys.path.append('Show-1')
 
 from showone.pipelines import TextToVideoIFPipeline, TextToVideoIFInterpPipeline, TextToVideoIFSuperResolutionPipeline
 from showone.pipelines.pipeline_t2v_base_pixel import tensor2vid
@@ -63,9 +67,10 @@ pipe_sr_2.enable_vae_slicing()
 
 
 # Inference
-for prompt in fileinput.input(encoding="utf-8"):
+for prompt in fileinput.input():
+    prompt = prompt.strip()
     print(prompt)
-    output_dir = f"./outputs/{prompt}/"
+    output_dir = f"./tests/{prompt}/"
     negative_prompt = "low resolution, blur"
 
     seed = 345
@@ -88,6 +93,7 @@ for prompt in fileinput.input(encoding="utf-8"):
     ).frames
 
     imageio.mimsave(f"{output_dir}/{prompt}_base.gif", tensor2vid(video_frames.clone()), fps=2)
+    imageio.mimsave(f"{output_dir}/{prompt}_base.mp4", tensor2vid(video_frames.clone()), fps=2)
 
     # Frame interpolation (8x64x40, 2fps -> 29x64x40, 7.5fps)
     bsz, channel, num_frames, height, width = video_frames.shape
@@ -121,6 +127,7 @@ for prompt in fileinput.input(encoding="utf-8"):
 
     video_frames = new_video_frames
     imageio.mimsave(f"{output_dir}/{prompt}_interp.gif", tensor2vid(video_frames.clone()), fps=8)
+    imageio.mimsave(f"{output_dir}/{prompt}_interp.mp4", tensor2vid(video_frames.clone()), fps=8)
 
     # Super-resolution 1 (29x64x40 -> 29x256x160)
     bsz, channel, num_frames, height, width = video_frames.shape
@@ -167,6 +174,7 @@ for prompt in fileinput.input(encoding="utf-8"):
 
     video_frames = new_video_frames
     imageio.mimsave(f"{output_dir}/{prompt}_sr1.gif", tensor2vid(video_frames.clone()), fps=8)
+    imageio.mimsave(f"{output_dir}/{prompt}_sr1.mp4", tensor2vid(video_frames.clone()), fps=8)
 
     # Super-resolution 2 (29x256x160 -> 29x576x320)
     video_frames = [Image.fromarray(frame).resize((576, 320)) for frame in tensor2vid(video_frames.clone())]
@@ -181,3 +189,4 @@ for prompt in fileinput.input(encoding="utf-8"):
     ).frames
 
     imageio.mimsave(f"{output_dir}/{prompt}.gif", tensor2vid(video_frames.clone()), fps=8)
+    imageio.mimsave(f"{output_dir}/{prompt}.mp4", tensor2vid(video_frames.clone()), fps=8)

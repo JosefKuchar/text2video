@@ -57,7 +57,8 @@ pipe_sr_1_cond = TextToVideoIFSuperResolutionPipeline_Cond.from_pretrained(
 pipe_sr_1_cond.enable_model_cpu_offload()
 
 # Super-Resolution Model 2
-pretrained_model_path = "showlab/show-1-sr2"
+#pretrained_model_path = "showlab/show-1-sr2"
+pretrained_model_path = "cerspense/zeroscope_v2_576w"
 pipe_sr_2 = VideoToVideoSDPipeline.from_pretrained(
     pretrained_model_path,
     torch_dtype=torch.float16
@@ -73,7 +74,7 @@ for prompt in fileinput.input():
     output_dir = f"./tests/{prompt}/"
     negative_prompt = "low resolution, blur"
 
-    seed = 345
+    seed = 346
     os.makedirs(output_dir, exist_ok=True)
 
     # Text embeds

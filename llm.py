@@ -1,3 +1,4 @@
+import sys
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 model_name_or_path = "TheBloke/WizardLM-13B-V1.2-GPTQ"
@@ -16,7 +17,7 @@ The school bus arrives, and they both get on.
 Mom waves goodbye to her daughter as she gets on the bus.
 The bus drives away with the daughter inside.
 Mom watches the bus disappear down the street.
-Mom goes back inside the house to start her day.</s>USER: Story about a boy who lost his toy car. ASSISTANT:
+Mom goes back inside the house to start her day.</s>USER: {sys.argv[1]}. ASSISTANT:
 '''
 
 pipe = pipeline(

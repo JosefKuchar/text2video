@@ -58,7 +58,8 @@ pipe_sr_1_cond.enable_model_cpu_offload()
 
 # Super-Resolution Model 2
 #pretrained_model_path = "showlab/show-1-sr2"
-pretrained_model_path = "cerspense/zeroscope_v2_576w"
+# pretrained_model_path = "cerspense/zeroscope_v2_576w"
+pretrained_model_path = "strangeman3107/animov-512x"
 pipe_sr_2 = VideoToVideoSDPipeline.from_pretrained(
     pretrained_model_path,
     torch_dtype=torch.float16
@@ -74,7 +75,7 @@ for prompt in fileinput.input():
     output_dir = f"./tests/{prompt}/"
     negative_prompt = "low resolution, blur"
 
-    seed = 346
+    seed = 349
     os.makedirs(output_dir, exist_ok=True)
 
     # Text embeds
@@ -94,7 +95,6 @@ for prompt in fileinput.input():
     ).frames
 
     imageio.mimsave(f"{output_dir}/{prompt}_base.gif", tensor2vid(video_frames.clone()), fps=2)
-    imageio.mimsave(f"{output_dir}/{prompt}_base.mp4", tensor2vid(video_frames.clone()), fps=2)
 
     # Frame interpolation (8x64x40, 2fps -> 29x64x40, 7.5fps)
     bsz, channel, num_frames, height, width = video_frames.shape
@@ -128,7 +128,6 @@ for prompt in fileinput.input():
 
     video_frames = new_video_frames
     imageio.mimsave(f"{output_dir}/{prompt}_interp.gif", tensor2vid(video_frames.clone()), fps=8)
-    imageio.mimsave(f"{output_dir}/{prompt}_interp.mp4", tensor2vid(video_frames.clone()), fps=8)
 
     # Super-resolution 1 (29x64x40 -> 29x256x160)
     bsz, channel, num_frames, height, width = video_frames.shape
@@ -179,8 +178,10 @@ for prompt in fileinput.input():
 
     # Super-resolution 2 (29x256x160 -> 29x576x320)
     video_frames = [Image.fromarray(frame).resize((576, 320)) for frame in tensor2vid(video_frames.clone())]
+
+    modelscope_prompt = "anime " + prompt
     video_frames = pipe_sr_2(
-        prompt,
+        modelscope_prompt,
         negative_prompt=negative_prompt,
         video=video_frames,
         strength=0.8,

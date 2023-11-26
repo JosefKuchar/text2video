@@ -1,3 +1,6 @@
 [submodule "Show-1"]
 	path = Show-1
 	url = https://github.com/showlab/Show-1
+[submodule "Text-To-Video-Finetuning"]
+	path = Text-To-Video-Finetuning
+	url = https://github.com/ExponentialML/Text-To-Video-Finetuning/

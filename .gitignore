@@ -3,3 +3,4 @@ miniconda3
 __pycache__
 tests
 bin
+*.mp4

@@ -15,6 +15,7 @@ sys.path.append('Show-1')
 from showone.pipelines import TextToVideoIFPipeline, TextToVideoIFInterpPipeline, TextToVideoIFSuperResolutionPipeline
 from showone.pipelines.pipeline_t2v_base_pixel import tensor2vid
 from showone.pipelines.pipeline_t2v_sr_pixel_cond import TextToVideoIFSuperResolutionPipeline_Cond
+from lora import inject_inferable_lora
 
 import fileinput
 
@@ -67,6 +68,7 @@ pipe_sr_2 = VideoToVideoSDPipeline.from_pretrained(
 pipe_sr_2.enable_model_cpu_offload()
 pipe_sr_2.enable_vae_slicing()
 
+inject_inferable_lora(pipe_sr_2, "Text-To-Video-Finetuning/outputs/train_2023-12-14T16-27-31/checkpoint-2500", 32)
 
 # Inference
 for prompt in fileinput.input():

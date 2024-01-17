@@ -4,3 +4,6 @@
 [submodule "Text-To-Video-Finetuning"]
 	path = Text-To-Video-Finetuning
 	url = https://github.com/ExponentialML/Text-To-Video-Finetuning/
+[submodule "i2vgen-xl"]
+	path = i2vgen-xl
+	url = https://github.com/ali-vilab/i2vgen-xl

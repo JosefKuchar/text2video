@@ -48,7 +48,9 @@ def parse_text(text: str):
     lines = text.splitlines()
     data = []
     for line in lines:
+        # TODO: Different text2image and text2video prompts
         data.append({
+            'text2image': line.strip(),
             'text2video': line.strip()
         })
     return data

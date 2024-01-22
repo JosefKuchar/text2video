@@ -13,8 +13,7 @@ open-clip-torch
 xformers
 chardet
 torchdiffeq
-opencv-python==4.4.0.46
-opencv-python-headless==4.7.0.68
+opencv-contrib-python==4.5.5.62
 torchsde
 simplejson
 motion-vector-extractor

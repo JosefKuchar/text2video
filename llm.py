@@ -15,13 +15,13 @@ def generate_text(description: str) -> str:
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
 
     # Prompt template with example
-    prompt=f'''The assistant is a expert movie director. It takes user story and transforms it into series of short clip descriptions. The assistant doesn't use pronouns to describe subjects! (for example his -> boy's, they -> mom and her daughter). USER: Story about mom and her daughter going to school. ASSISTANT:
-Mother is waking up her daughter in the morning.
-Mother and her daughter both prepare breakfast together in the kitchen.
-Mom helps her daughter put on her school uniform.
-Mom and her daughter leave the house and walk towards the school bus stop.
-The school bus arrives, and they both get on.
-Mom waves goodbye to her daughter as she gets on the bus.
+    prompt=f'''The assistant is a expert movie director. It takes user story and transforms it into series of short clip descriptions. The assistant doesn't use pronouns for referencing subjects! Instead of his, he says boy's and so on. USER: Story about mom and her daughter going to school. ASSISTANT:
+Mother is waking up daughter in the morning.
+Mother and daughter both prepare breakfast together in the kitchen.
+Mom helps daughter put on school uniform.
+Mom and daughter leave the house and walk towards the school bus stop.
+The school bus arrives, and daughter gets on.
+Mom waves goodbye to daughter as daughter gets on the bus.
 The bus drives away with the daughter inside.
 Mom watches the bus disappear down the street.
 Mom goes back inside the house to start her day.</s>USER: {description}. ASSISTANT:
@@ -68,5 +68,6 @@ if __name__ == '__main__':
     parser.add_argument('dir', type=str, help='Directory to save the output')
     args = parser.parse_args()
     text = generate_text(args.prompt)
+    print(text)
     parsed = parse_text(text)
     save_config(parsed, args.dir)

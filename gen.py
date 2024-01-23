@@ -25,12 +25,17 @@ def generate_images(config, dir):
     images = []
     for index, image in enumerate(config):
         prompt = image['text2image']
+        style_prompt = "animated cartoon"
+        steps=40
+        negative_prompt = "out of frame, lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature"
         size = (1280, 720) # I2VGen-XL resolution
 
         # Run inference
         image = base(
             prompt=prompt,
-            num_inference_steps=25,
+            prompt_2=style_prompt,
+            negative_prompt=negative_prompt,
+            num_inference_steps=steps,
             denoising_end=0.8,
             output_type="latent",
             original_size=size,
@@ -40,7 +45,9 @@ def generate_images(config, dir):
         ).images
         image = refiner(
             prompt=prompt,
-            num_inference_steps=25,
+            prompt_2=style_prompt,
+            negative_prompt=negative_prompt,
+            num_inference_steps=steps,
             denoising_start=0.8,
             image=image,
             original_size=size,

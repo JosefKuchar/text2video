@@ -7,3 +7,6 @@
 [submodule "i2vgen-xl"]
 	path = i2vgen-xl
 	url = https://github.com/JosefKuchar/i2vgen-xl
+[submodule "priorMDM"]
+	path = priorMDM
+	url = https://github.com/priorMDM/priorMDM

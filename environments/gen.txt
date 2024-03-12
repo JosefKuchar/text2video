@@ -1,4 +1,4 @@
-torch
+torch==2.2.0
 torchvision
 torchaudio
 easydict
@@ -31,3 +31,5 @@ diffusers
 accelerate
 auto-gptq
 optimum
+ipykernel
+seaborn-image

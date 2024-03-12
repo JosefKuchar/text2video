@@ -6,3 +6,5 @@ bin
 *.mp4
 fails
 test
+*.safetensors
+*.zip

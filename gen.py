@@ -1,5 +1,6 @@
 import torch
-from diffusers import DiffusionPipeline
+import diffusers
+from diffusers import DiffusionPipeline, DPMSolverMultistepScheduler
 from transformers import CLIPProcessor, CLIPModel
 import argparse
 import json
@@ -11,35 +12,44 @@ def generate_images(config, dir):
 
     # https://huggingface.co/docs/diffusers/using-diffusers/sdxl
     # Setup pipes
+    #
     base = DiffusionPipeline.from_pretrained(
         "stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True
     ).to("cuda")
     base.enable_vae_slicing()
-    refiner = DiffusionPipeline.from_pretrained(
-        "stabilityai/stable-diffusion-xl-refiner-1.0",
-        text_encoder_2=base.text_encoder_2,
-        vae=base.vae,
-        torch_dtype=torch.float16,
-        use_safetensors=True,
-        variant="fp16",
-    ).to("cuda")
-    refiner.enable_vae_slicing()
+    base.load_lora_weights("lora/WillieXL-000465.safetensors", 'willie')
+    # refiner = DiffusionPipeline.from_pretrained(
+    #     "stabilityai/stable-diffusion-xl-refiner-1.0",
+    #     text_encoder_2=base.text_encoder_2,
+    #     vae=base.vae,
+    #     torch_dtype=torch.float16,
+    #     use_safetensors=True,
+    #     variant="fp16",
+    # ).to("cuda")
+    # refiner.enable_vae_slicing()
 
     # https://huggingface.co/openai/clip-vit-large-patch14
     clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
     clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
 
     data = []
+    base.set_adapters(['willie'], adapter_weights=[0.7])
+
+    # Set scheduler
+    # base.scheduler = DPMSolverMultistepScheduler.from_config(base.scheduler.config)
 
     # Set seed for reproducibility
-    torch.manual_seed(0)
+    torch.manual_seed(1236)
     for index, image in enumerate(config):
-        prompt = image['text2image']
-        style_prompt = "animated cartoon"
+        prompt = 'photograph of ' + image["text2image"]
+        style_prompt = prompt
         steps = 40
         batch_size = 4
-        negative_prompt = "multiple scenes, multiple images, vector, out of frame, lowres, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature"
+        # negative_prompt = "out of frame, lowres, error, cropped, morbid, mutated, out of frame, extra fingers, mutated hands, mutation, deformed, blurry, bad anatomy, extra limbs, cloned face, disfigured, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature"
+        negative_prompt = "old, white background"
         size = (1280, 720) # I2VGen-XL resolution
+
+        print(steps)
 
         # Run inference
         images = base(
@@ -48,34 +58,35 @@ def generate_images(config, dir):
             negative_prompt=negative_prompt,
             negative_prompt_2=negative_prompt,
             num_inference_steps=steps,
-            denoising_end=0.8,
-            output_type="latent",
+            denoising_end=1,
+            # output_type="latent",
             original_size=size,
             target_size=size,
             width=size[0],
             height=size[1],
             num_images_per_prompt=batch_size,
+            use_karras_sigmas=True
         ).images
-        images = refiner(
-            prompt=prompt,
-            prompt_2=style_prompt,
-            negative_prompt=negative_prompt,
-            nsegative_prompt_2=negative_prompt,
-            num_inference_steps=steps,
-            denoising_start=0.8,
-            image=images,
-            original_size=size,
-            target_size=size,
-            width=size[0],
-            height=size[1],
-            num_images_per_prompt=batch_size,
-        ).images
+        # images = refiner(
+        #     prompt=prompt,
+        #     prompt_2=style_prompt,
+        #     negative_prompt=negative_prompt,
+        #     nsegative_prompt_2=negative_prompt,
+        #     num_inference_steps=steps,
+        #     denoising_start=0.8,
+        #     image=images,
+        #     original_size=size,
+        #     target_size=size,
+        #     width=size[0],
+        #     height=size[1],
+        #     num_images_per_prompt=batch_size,
+        # ).images
 
         # Calculate similarity
         inputs = clip_processor(text=prompt, images=images, return_tensors="pt", padding=True)
         outputs = clip_model(**inputs)
         logits = outputs.logits_per_text
-        probs = logits.oftmax(dim=1)
+        probs = logits.softmax(dim=1)
         best = probs[0].argmax()
         print("Best image:", best, "with probability:", probs[0][best].item())
 

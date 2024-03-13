@@ -89,7 +89,7 @@ print(mlab.view())
 
 
 images = []
-for i in tqdm(range(80, 81, 2)):
+for i in tqdm(range(0, 256, 2)):
     figure.scene.disable_render = True
     # Calculate neck joint (center of shoulders)
     for j in range(3):
@@ -107,15 +107,23 @@ for i in tqdm(range(80, 81, 2)):
     # Calculate eye vector
     eye_vec = (v1 / np.linalg.norm(v1)) / 20
 
+    # Calculate vector from nose to back of head
+    back_vec = -np.cross(cp, eye_vec)
+    back_vec = (back_vec / np.linalg.norm(back_vec)) / 20
+
     # Make head bigger (multiply by 2)
     for j in range(3):
         motion[12][j][i] = motion[9][j][i] + (motion[12][j][i] - motion[9][j][i]) * 2
 
     for j in range(3):
-        motion[22][j][i] = motion[12][j][i] + cp[j]
-        motion[23][j][i] = motion[12][j][i] + cp[j] * 0.5 + eye_vec[j]
-        motion[24][j][i] = motion[12][j][i] + -cp[j]
-        motion[25][j][i] = motion[12][j][i] + -cp[j] * 0.5 + eye_vec[j]
+        # Left ear
+        motion[22][j][i] = motion[12][j][i] + cp[j] + back_vec[j] * 3
+        # Left eye
+        motion[23][j][i] = motion[12][j][i] + cp[j] * 0.5 + eye_vec[j] + back_vec[j]
+        # Right ear
+        motion[24][j][i] = motion[12][j][i] + -cp[j] + back_vec[j] * 3
+        # Right eye
+        motion[25][j][i] = motion[12][j][i] + -cp[j] * 0.5 + eye_vec[j] + back_vec[j]
 
     # for joint in joints:
     #     ax.scatter(motion[joint[0]][0][i], motion[joint[0]][1][i], motion[joint[0]][2][i], color=joint[1])
@@ -131,9 +139,9 @@ for i in tqdm(range(80, 81, 2)):
     img = mlab.screenshot()
     images.append(Image.fromarray(img))
 
-    img = Image.fromarray(img)
-    img =img.resize((512, 512))
-    img.save(f"frame_{i}.png")
+    # img = Image.fromarray(img)
+    # img =img.resize((512, 512))
+    # img.save(f"frame_{i}.png")
 
     # cam,foc = mlab.move()
     # mlab.move(-0.1, 0, 0)
@@ -142,8 +150,6 @@ conditioning_frames = [img.resize((512, 512)) for img in images]
 
 # Save the conditioning frames
 imageio.mimsave(f"conditioning.mp4", conditioning_frames, fps=8, codec='libx264')
-
-exit()
 
 motion_id = "guoyww/animatediff-motion-adapter-v1-5-2"
 adapter = MotionAdapter.from_pretrained(motion_id)
@@ -173,7 +179,7 @@ pipe.scheduler = DPMSolverMultistepScheduler.from_pretrained(
 # pipe.set_adapters(["willie"], adapter_weights=[0.8])
 pipe.enable_vae_slicing()
 
-prompt = "humanoid robot walking on a beach, sunset in the background"
+prompt = "animated man in suit walking on a beach, best quality, masterpiece"
 negative_prompt = "bad quality, worst quality, jpeg artifacts, ugly"
 
 torch.manual_seed(1234)
@@ -181,11 +187,15 @@ with torch.no_grad():
     generator = torch.Generator(device="cuda")
     generator.manual_seed(1234)
     steps = 20
-    n = 32
+    n = 128
     overlap = 4
     window_size = 16
-    latents = torch.randn([1, 4, n, 64, 64], device="cuda", dtype=torch.float16, generator=generator)
-    ranges = [range(0, 16), range(8, 24), range(16, 32), [24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7], range(0, 32, 2), range(1, 32, 2)] # range(0, 32, 2), range(1, 32, 2)
+    latents = torch.randn([1, 4, 16, 64, 64], device="cuda", dtype=torch.float16, generator=generator)
+    latents = latents.repeat(1, 1, 8, 1, 1)
+    # ranges = [range(0, 16), range(8, 24), range(16, 32), [24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7], range(0, 32, 2), range(1, 32, 2)] # range(0, 32, 2), range(1, 32, 2)
+    # Calculate ranges based on n, overlap and window_size
+    ranges = [range(i, i + window_size) for i in range(0, n - window_size + 1, window_size - overlap)]
+    print(ranges)
     for step in range(0, steps):
         sum_latents = torch.zeros([1, 4, n, 64, 64], device="cuda", dtype=torch.float16)
         num_processed = torch.zeros([n], device="cuda", dtype=torch.float16)

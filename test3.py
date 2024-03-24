@@ -12,7 +12,8 @@ from pyvirtualdisplay import Display
 from tqdm import tqdm
 from util import hex_to_tuple
 from upscale import upscale
-
+from safetensors.torch import load_file
+from huggingface_hub import hf_hub_download
 
 display = Display(visible=0, size=(1280, 1024))
 display.start()
@@ -173,8 +174,12 @@ conditioning_frames = [img.resize((512, 512)) for img in images]
 # Save the conditioning frames
 imageio.mimsave(f"conditioning.mp4", conditioning_frames, fps=8, codec="libx264")
 
-motion_id = "guoyww/animatediff-motion-adapter-v1-5-2"
-adapter = MotionAdapter.from_pretrained(motion_id)
+# motion_id = "guoyww/animatediff-motion-adapter-v1-5-2"
+# adapter = MotionAdapter.from_pretrained(motion_id)
+
+adapter = MotionAdapter().to("cuda", torch.float16)
+adapter.load_state_dict(load_file(hf_hub_download("ByteDance/AnimateDiff-Lightning", "animatediff_lightning_4step_diffusers.safetensors"), device="cuda"))
+
 controlnet = [
     ControlNetModel.from_pretrained(
         "lllyasviel/control_v11p_sd15_openpose", torch_dtype=torch.float16
@@ -225,7 +230,7 @@ torch.manual_seed(1234)
 with torch.no_grad():
     generator = torch.Generator(device="cuda")
     generator.manual_seed(1234)
-    steps = 20
+    steps = 4
     n = 16
     overlap = 4
     window_size = 16
@@ -249,6 +254,7 @@ with torch.no_grad():
                 negative_prompt=negative_prompt,
                 width=512,
                 height=512,
+                guidance_scale=1.0,
                 do_inference_steps=1,
                 steps_offset=step,
                 conditioning_frames=[

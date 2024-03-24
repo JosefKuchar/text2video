@@ -8,3 +8,4 @@ fails
 test
 *.safetensors
 *.zip
+*.pth

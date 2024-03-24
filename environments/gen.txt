@@ -33,3 +33,6 @@ auto-gptq
 optimum
 ipykernel
 seaborn-image
+realesrgan
+mayavi
+pyvirtualdisplay

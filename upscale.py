@@ -13,6 +13,7 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan import RealESRGANer
 from tqdm import tqdm
 from util import cv2_to_pil, pil_to_cv2
+import logging
 
 model = RRDBNet(
     num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4
@@ -31,6 +32,7 @@ upsampler = RealESRGANer(
     half=True,
 )
 
+logger = logging.getLogger(__name__)
 
 def upscale(frames):
     """
@@ -39,6 +41,7 @@ def upscale(frames):
     :param frames: list of frames
     """
 
+    logger.info("Upscaling video frames using Real ESRGAN")
     upscaled_frames = []
     for frame in tqdm(frames):
         frame = pil_to_cv2(frame)

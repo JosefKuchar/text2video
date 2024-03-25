@@ -10,3 +10,4 @@
 # conda env create -f zeroscope.yaml
 conda create -y -n gen python=3.10
 conda run -v -n gen pip install -r gen.txt
+conda run -v -n gen python -m spacy download en_core_web_sm

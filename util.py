@@ -21,3 +21,9 @@ def cv2_to_pil(image):
     """Convert OpenCV image to PIL image."""
 
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+def get_overlap(a: tuple[int, int], b: tuple[int, int]):
+    """Get number of overlapping elements between two ranges."""
+
+    return max(0, min(a[1], b[1]) - max(a[0], b[0]))

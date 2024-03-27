@@ -17,10 +17,10 @@ import torch
 import torch.nn as nn
 import torch.utils.checkpoint
 
-from ...configuration_utils import ConfigMixin, register_to_config
-from ...loaders import UNet2DConditionLoadersMixin
-from ...utils import logging
-from ..attention_processor import (
+from diffusers.configuration_utils import ConfigMixin, register_to_config
+from diffusers.loaders import UNet2DConditionLoadersMixin
+from diffusers.utils import logging
+from diffusers.models.attention_processor import (
     ADDED_KV_ATTENTION_PROCESSORS,
     CROSS_ATTENTION_PROCESSORS,
     Attention,
@@ -28,12 +28,12 @@ from ..attention_processor import (
     AttnAddedKVProcessor,
     AttnProcessor,
 )
-from ..embeddings import TimestepEmbedding, Timesteps
-from ..modeling_utils import ModelMixin
-from ..transformers.transformer_temporal import TransformerTemporalModel
-from .unet_2d_blocks import UNetMidBlock2DCrossAttn
-from .unet_2d_condition import UNet2DConditionModel
-from .unet_3d_blocks import (
+from diffusers.models.embeddings import TimestepEmbedding, Timesteps
+from diffusers.models.modeling_utils import ModelMixin
+from diffusers.models.transformers.transformer_temporal import TransformerTemporalModel
+from diffusers.models.unets.unet_2d_blocks import UNetMidBlock2DCrossAttn
+from diffusers.models.unets.unet_2d_condition import UNet2DConditionModel
+from diffusers.models.unets.unet_3d_blocks import (
     CrossAttnDownBlockMotion,
     CrossAttnUpBlockMotion,
     DownBlockMotion,
@@ -42,7 +42,7 @@ from .unet_3d_blocks import (
     get_down_block,
     get_up_block,
 )
-from .unet_3d_condition import UNet3DConditionOutput
+from diffusers.models.unets.unet_3d_condition import UNet3DConditionOutput
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -908,9 +908,6 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
 
         emb = self.time_embedding(t_emb, timestep_cond)
         emb = emb.repeat_interleave(repeats=num_frames, dim=0)
-        encoder_hidden_states = encoder_hidden_states.repeat_interleave(
-            repeats=num_frames, dim=0
-        )
 
         if (
             self.encoder_hid_proj is not None

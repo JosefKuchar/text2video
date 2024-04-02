@@ -8,6 +8,9 @@ from mayavi import mlab
 from pyvirtualdisplay import Display
 from tqdm import tqdm
 import util
+import logging
+
+logger = logging.getLogger(__name__)
 
 # https://observablehq.com/@hellonearthis/bwalker-to-open-pose
 joints = [
@@ -57,6 +60,8 @@ display.start()
 
 
 def generate_conditioning_frames(motion, start=0, stop=500, step=2):
+    logger.info("Rendering conditioning openpose frames")
+
     # Enable offscreen rendering
     mlab.options.offscreen = True
 

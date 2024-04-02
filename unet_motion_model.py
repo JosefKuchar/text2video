@@ -33,7 +33,7 @@ from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.transformers.transformer_temporal import TransformerTemporalModel
 from diffusers.models.unets.unet_2d_blocks import UNetMidBlock2DCrossAttn
 from diffusers.models.unets.unet_2d_condition import UNet2DConditionModel
-from diffusers.models.unets.unet_3d_blocks import (
+from unet_3d_blocks import (
     CrossAttnDownBlockMotion,
     CrossAttnUpBlockMotion,
     DownBlockMotion,
@@ -110,6 +110,8 @@ class MotionAdapter(ModelMixin, ConfigMixin):
             use_motion_mid_block (`bool`, *optional*, defaults to True):
                 Whether to use a motion module in the middle of the UNet.
         """
+
+        print('test')
 
         super().__init__()
         down_blocks = []

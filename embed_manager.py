@@ -25,8 +25,8 @@ class EmbedManager:
         """
         Precompute the conditioning tensors for a list of prompts
 
-        :param prompts: list of tuples of (prompt, starting frame)
-        :return: list of tuples of (conditioning tensor, starting frame)
+        :param prompts: list of tuples of (prompt, ending frame)
+        :return: list of tuples of (conditioning tensor, ending frame)
         """
 
         logger.info("Precomputing conditioning tensors")
@@ -38,7 +38,7 @@ class EmbedManager:
         """
         Get the conditioning tensor for a given window of frames
 
-        :param embeds: list of tuples of (conditioning tensor, starting frame)
+        :param embeds: list of tuples of (conditioning tensor, ending frame)
         :param start: starting frame
         :param stop: ending frame
         :return: conditioning tensor
@@ -47,16 +47,12 @@ class EmbedManager:
         tensors = []
         for embed_index, embed in enumerate(self.embeds):
             # Next conditioning tensor index
-            next_embed_index = (
-                self.embeds[embed_index + 1][1]
-                if embed_index + 1 < len(self.embeds)
-                else self.video_len
-            )
+            prev_embed_index = self.embeds[embed_index - 1][1] if embed_index > 0 else 0
             # We are after stop, so we can break
-            if embed[1] >= stop:
+            if prev_embed_index >= stop:
                 break
             # Calculate the overlap between the current conditioning tensor and the window
-            n = get_overlap((start, stop), (embed[1], next_embed_index))
+            n = get_overlap((start, stop), (prev_embed_index, embed[1]))
             if n == 0:
                 continue
             # Repeat the current conditioning tensor n times

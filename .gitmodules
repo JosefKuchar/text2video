@@ -1,3 +1,6 @@
 [submodule "priorMDM"]
 	path = priorMDM
 	url = https://github.com/JosefKuchar/priorMDM
+[submodule "diffusers"]
+	path = diffusers
+	url = https://github.com/JosefKuchar/diffusers

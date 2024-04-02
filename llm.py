@@ -1,73 +1,108 @@
-import sys
-import os
-import argparse
+from llama_cpp import Llama
+import logging
+from yaspin import yaspin
 import json
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
-def generate_text(description: str) -> str:
-    """Generates story from the given description."""
-    # Setup model
-    model_name_or_path = "TheBloke/WizardLM-13B-V1.2-GPTQ"
-    model = AutoModelForCausalLM.from_pretrained(model_name_or_path,
-                                                device_map="auto",
-                                                trust_remote_code=False,
-                                                revision="main")
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
+logger = logging.getLogger(__name__)
 
-    # Prompt template with example
-    prompt=f'''The assistant is a expert movie director. It takes user story and transforms it into series of short clip descriptions. The assistant doesn't use pronouns for referencing subjects! Instead of his, he says boy's and so on. USER: Story about mom and her daughter going to school. ASSISTANT:
-Mother is waking up daughter in the morning.
-Mother and daughter both prepare breakfast together in the kitchen.
-Mom helps daughter put on school uniform.
-Mom and daughter leave the house and walk towards the school bus stop.
-The school bus arrives, and daughter gets on.
-Mom waves goodbye to daughter as daughter gets on the bus.
-The bus drives away with the daughter inside.
-Mom watches the bus disappear down the street.
-Mom goes back inside the house to start her day.</s>USER: {description}. ASSISTANT:
-'''
 
-    # Create pipeline
-    pipe = pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        do_sample=True,
-        #do_sample=True,
-        #temperature=0.7,
-        #top_k=40,
-        #repetition_penalty=1.1,
-        return_full_text=False
+def generate_scenario(prompt: str):
+    """
+    Generate scnenario in JSON format based on prompt
+
+    :param prompt: Prompt for the story generation
+    """
+
+    logger.info("Loading large language model")
+
+    llm = Llama.from_pretrained(
+        repo_id="TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
+        filename="mistral-7b-instruct-v0.2.Q4_K_M.gguf",
+        n_gpu_layers=-1,
+        n_ctx=32768,
+        n_batch=32768,
+        verbose=False,
     )
 
-    # Generate text
-    return pipe(prompt)[0]['generated_text']
+    logger.info("Generating scenario based on prompt")
 
-def parse_text(text: str):
-    """Parse test from raw LLM output."""
-    lines = text.splitlines()
-    data = []
-    for line in lines:
-        # TODO: Different text2image and text2video prompts
-        data.append({
-            'text2image': line.strip(),
-            'text2video': line.strip()
-        })
-    return data
+    # return {
+    #     "character_description": "The person is in their mid-30s, with short, curly hair, wearing a bright red shirt, denim jeans, and comfortable walking shoes. They have a warm smile, carry a small backpack, and wear sunglasses on a sunny day in the park.",
+    #     "scenes": [
+    #         {
+    #             "length": 15,
+    #             "motion_description": "The person is walking slowly, taking in the surroundings, occasionally stopping to admire flowers.",
+    #             "scene_description": "The park is vibrant with the colors of various flowers and the lush green of the grass. The sun is shining brightly, casting playful shadows through the leaves of tall trees. Children are playing in the distance, and there's a gentle breeze.",
+    #         },
+    #         {
+    #             "length": 15,
+    #             "motion_description": "The person sits on a bench, takes out a book from their backpack, and begins to read.",
+    #             "scene_description": "The bench is located under a large oak tree, providing a perfect blend of sunlight and shade. The scene is peaceful, with the occasional sound of birds chirping and leaves rustling. People are walking by, some with their dogs, creating a lively atmosphere.",
+    #         },
+    #         {
+    #             "length": 15,
+    #             "motion_description": "A small dog approaches the person, who puts the book down to pet it.",
+    #             "scene_description": "The small dog, a friendly golden retriever puppy, wags its tail excitedly as it gets petted. The person laughs and plays with the puppy, attracting the attention of a few passersby who smile at the scene.",
+    #         },
+    #         {
+    #             "length": 15,
+    #             "motion_description": "After the dog leaves, the person resumes reading, occasionally sipping from a water bottle.",
+    #             "scene_description": "The person is once again engrossed in their book, relaxed and enjoying the serenity of the park. The sunlight has shifted, creating a warm, golden hue across the scene, signaling the approach of late afternoon. The park remains a hub of quiet activity, encapsulating a perfect day out.",
+    #         },
+    #     ],
+    # }
 
-def save_config(config, dir: str):
-    """Save final config to the given directory."""
-    os.makedirs(dir, exist_ok=True)
-    with open(os.path.join(dir, 'text.json'), 'w') as f:
-        json.dump(config, f)
+    # Generate scenario based on prompt
+    with yaspin(text="Generating scenario based on prompt"):
+        res = llm.create_chat_completion(
+            messages=[
+                {
+                    "role": "user",
+                    "content": """You are a helpful assistant that outputs in JSON.
 
-if __name__ == '__main__':
-    # TODO: Description
-    parser = argparse.ArgumentParser()
-    parser.add_argument('prompt', type=str, help='Prompt for the model')
-    parser.add_argument('dir', type=str, help='Directory to save the output')
-    args = parser.parse_args()
-    text = generate_text(args.prompt)
-    print(text)
-    parsed = parse_text(text)
-    save_config(parsed, args.dir)
+        Here are details about the JSON object you need to create:
+
+        'character_description' is a description of the character in all scenes
+        'length' is the duration of the scene in seconds
+        'motion_description' is a description of the motion in the scene
+        'scene_description' is a visual description of the scene
+        Create story about a person in a park, approximately 1 minute long. It is sunny and the person is wearing a red shirt.""",
+                },
+                {
+                    "role": "assistant",
+                    "content": """{"character_description":"The person is in their mid-30s, with short, curly hair, wearing a bright red shirt, denim jeans, and comfortable walking shoes. They have a warm smile, carry a small backpack, and wear sunglasses on a sunny day in the park.","scenes":[{"length":15,"motion_description":"The person is walking slowly, taking in the surroundings, occasionally stopping to admire flowers.","scene_description":"The park is vibrant with the colors of various flowers and the lush green of the grass. The sun is shining brightly, casting playful shadows through the leaves of tall trees. Children are playing in the distance, and there's a gentle breeze."},{"length":15,"motion_description":"The person sits on a bench, takes out a book from their backpack, and begins to read.","scene_description":"The bench is located under a large oak tree, providing a perfect blend of sunlight and shade. The scene is peaceful, with the occasional sound of birds chirping and leaves rustling. People are walking by, some with their dogs, creating a lively atmosphere."},{"length":15,"motion_description":"A small dog approaches the person, who puts the book down to pet it.","scene_description":"The small dog, a friendly golden retriever puppy, wags its tail excitedly as it gets petted. The person laughs and plays with the puppy, attracting the attention of a few passersby who smile at the scene."},{"length":15,"motion_description":"After the dog leaves, the person resumes reading, occasionally sipping from a water bottle.","scene_description":"The person is once again engrossed in their book, relaxed and enjoying the serenity of the park. The sunlight has shifted, creating a warm, golden hue across the scene, signaling the approach of late afternoon. The park remains a hub of quiet activity, encapsulating a perfect day out."}]}""",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format={
+                "type": "json_object",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "character_description": {"type": "string"},
+                        "scenes": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "length": {"type": "number"},
+                                    "motion_description": {"type": "string"},
+                                    "scene_description": {"type": "string"},
+                                },
+                                "required": [
+                                    "length",
+                                    "motion_description",
+                                    "scene_description",
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+            temperature=0.7,
+        )
+
+    # Parse JSON
+    res = json.loads(res["choices"][0]["message"]["content"])
+
+    return res

@@ -875,6 +875,7 @@ class AnimateDiffControlNetPipeline(
         clip_skip: Optional[int] = None,
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
+        camera_motions=None,
         **kwargs,
     ):
         r"""
@@ -1160,15 +1161,12 @@ class AnimateDiffControlNetPipeline(
             timesteps[steps_offset : steps_offset + do_inference_steps]
         ):
             # expand the latents if we are doing classifier free guidance
-            print("latents", latents.shape)
             latent_model_input = (
                 torch.cat([latents] * 2)
                 if self.do_classifier_free_guidance
                 else latents
             )
-            print("latent_model_input", latent_model_input.shape)
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-            print("latent_model_input", latent_model_input.shape)
 
             if guess_mode and self.do_classifier_free_guidance:
                 # Infer ControlNet only for the conditional batch.
@@ -1212,8 +1210,6 @@ class AnimateDiffControlNetPipeline(
                 return_dict=False,
             )
 
-            print("latent_model_input", latent_model_input.shape)
-            print("prompt_embeds", prompt_embeds.shape)
             # predict the noise residual
             noise_pred = self.unet(
                 latent_model_input,
@@ -1223,6 +1219,8 @@ class AnimateDiffControlNetPipeline(
                 added_cond_kwargs=added_cond_kwargs,
                 down_block_additional_residuals=down_block_res_samples,
                 mid_block_additional_residual=mid_block_res_sample,
+                set_adapters=self.set_adapters,
+                camera_motions=camera_motions,
             ).sample
 
             # perform guidance

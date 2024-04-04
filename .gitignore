@@ -9,3 +9,5 @@ test
 *.safetensors
 *.zip
 *.pth
+cache
+old

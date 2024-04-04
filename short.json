@@ -1,0 +1,15 @@
+{
+    "character_description": "The person is in their mid-30s, with short, curly hair, wearing a bright red shirt, denim jeans, and comfortable walking shoes. They have a warm smile, carry a small backpack, and wear sunglasses on a sunny day in the park.",
+    "scenes": [
+        {
+            "length": 8,
+            "motion_description": "The person is walking slowly, taking in the surroundings, occasionally stopping to admire flowers.",
+            "scene_description": "The park is vibrant with the colors of various flowers and the lush green of the grass. The sun is shining brightly, casting playful shadows through the leaves of tall trees. Children are playing in the distance, and there's a gentle breeze."
+        },
+        {
+            "length": 8,
+            "motion_description": "The person sits on a bench, takes out a book from their backpack, and begins to read.",
+            "scene_description": "The bench is located under a large oak tree, providing a perfect blend of sunlight and shade. The scene is peaceful, with the occasional sound of birds chirping and leaves rustling. People are walking by, some with their dogs, creating a lively atmosphere."
+        }
+    ]
+}

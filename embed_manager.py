@@ -16,23 +16,27 @@ class EmbedManager:
     compel: Compel
     embeds: list[tuple[torch.Tensor, int]]
 
-    def __init__(self, video_len, tokenizer, text_encoder):
+    def __init__(self, video_len, character_description, tokenizer, text_encoder):
         self.video_len = video_len
         self.compel = Compel(tokenizer=tokenizer, text_encoder=text_encoder)
+        self.character_description = character_description
         self.embeds = []
 
-    def precompute_embeds(self, prompts: list[tuple[str, int]]):
+    def precompute_embeds(self, prompts: list[tuple[str, str, int]]):
         """
         Precompute the conditioning tensors for a list of prompts
 
-        :param prompts: list of tuples of (prompt, ending frame)
+        :param prompts: list of tuples of (scene description, motion description, ending frame)
         :return: list of tuples of (conditioning tensor, ending frame)
         """
 
         logger.info("Precomputing conditioning tensors")
         for prompt in tqdm(prompts):
-            conditioning = self.compel.build_conditioning_tensor(prompt[0])
-            self.embeds.append((conditioning, prompt[1]))
+            # query = f'("masterpiece, best quality, {self.character_description}", "masterpiece, best quality, {prompt[1]}", "masterpiece, best quality, {prompt[0]}").and()'
+            query = f"masterpiece, best quality, {self.character_description}, {prompt[1]}, {prompt[0]}"
+            print(query)
+            conditioning = self.compel.build_conditioning_tensor(query)
+            self.embeds.append((conditioning, prompt[2]))
 
     def get_embed_window(self, start: int, stop: int) -> torch.Tensor:
         """
@@ -58,3 +62,10 @@ class EmbedManager:
             # Repeat the current conditioning tensor n times
             tensors.append(embed[0].repeat_interleave(repeats=n, dim=0))
         return torch.cat(tensors, dim=0)
+
+    def get_negative_embeds(self) -> torch.Tensor:
+        general_negative = self.compel.build_conditioning_tensor(
+            "worst quality, low quality"
+            # '("worst quality, low quality","worst quality, low quality","worst quality, low quality").and()"'
+        )
+        return general_negative.repeat_interleave(repeats=self.video_len, dim=0)

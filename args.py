@@ -17,6 +17,28 @@ def parse_args():
         type=argparse.FileType("r"),
     )
     parser.add_argument(
+        "--model",
+        default="SG161222/Realistic_Vision_V5.1_noVAE",
+        help="Model ID for the base diffusion model",
+    )
+    parser.add_argument(
+        "--motion-adapter",
+        default="ByteDance/AnimateDiff-Lightning",
+        help="Model ID for the motion adapter",
+    )
+    parser.add_argument(
+        "--motion-adapter-variant",
+        default="animatediff_lightning_8step_diffusers.safetensors",
+        help="Model variant for the motion adapter",
+    )
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=8,
+        help="Number of steps for the diffusion model",
+    )
+    parser.add_argument("--guidance-scale", type=float, default=1.0)
+    parser.add_argument(
         "-s", "--seed", type=int, help="seed for random number generators"
     )
     parser.add_argument(

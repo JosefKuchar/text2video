@@ -10,16 +10,36 @@ import torchvision.transforms.functional as functional
 
 sys.modules["torchvision.transforms.functional_tensor"] = functional
 from basicsr.archs.rrdbnet_arch import RRDBNet
+from basicsr.archs.srvgg_arch import SRVGGNetCompact
 from realesrgan import RealESRGANer
 from tqdm import tqdm
 from util import cv2_to_pil, pil_to_cv2
+from PIL import Image
 import logging
+import cv2
 
-model = RRDBNet(
-    num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4
+# model = RRDBNet(
+#     num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4
+# )
+# netscale = 4
+# model_path = "models/RealESRGAN_x4plus.pth"
+
+# upsampler = RealESRGANer(
+#     scale=netscale,
+#     model_path=model_path,
+#     dni_weight=None,
+#     model=model,
+#     tile=0,
+#     tile_pad=10,
+#     pre_pad=0,
+#     half=True,
+# )
+
+model = SRVGGNetCompact(
+    num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=16, upscale=4, act_type="prelu"
 )
 netscale = 4
-model_path = "models/RealESRGAN_x4plus.pth"
+model_path = "models/realesr-animevideov3.pth"
 
 upsampler = RealESRGANer(
     scale=netscale,
@@ -34,6 +54,7 @@ upsampler = RealESRGANer(
 
 logger = logging.getLogger(__name__)
 
+
 def upscale(frames):
     """
     Upscale video frame using Real ESRGAN
@@ -46,6 +67,7 @@ def upscale(frames):
     for frame in tqdm(frames):
         frame = pil_to_cv2(frame)
         output, _ = upsampler.enhance(frame, outscale=4)
+        output = cv2.resize(output, (1920, 1088))
         output = cv2_to_pil(output)
         upscaled_frames.append(output)
     return upscaled_frames

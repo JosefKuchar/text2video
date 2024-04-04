@@ -33,10 +33,11 @@ from diffusers.loaders import (
     LoraLoaderMixin,
     TextualInversionLoaderMixin,
 )
-from diffusers.models import AutoencoderKL, ControlNetModel, UNet2DConditionModel
+from diffusers.models import AutoencoderKL, UNet2DConditionModel
 from diffusers.models.lora import adjust_lora_scale_text_encoder
 from unet_motion_model import MotionAdapter, UNetMotionModel
-from diffusers.pipelines.controlnet.multicontrolnet import MultiControlNetModel
+from multicontrolnet import MultiControlNetModel
+from controlnet import ControlNetModel
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.schedulers import (
     DDIMScheduler,

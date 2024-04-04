@@ -66,7 +66,7 @@ def generate_conditioning_frames(motion, start=0, stop=500, step=2):
     mlab.options.offscreen = True
 
     # Create mayavi figure
-    figure = mlab.figure(size=(1024, 1024), bgcolor=(0, 0, 0))
+    figure = mlab.figure(size=(912, 512), bgcolor=(0, 0, 0))
     mlab.clf()
 
     # Expand motion array for head and eye joints
@@ -102,6 +102,13 @@ def generate_conditioning_frames(motion, start=0, stop=500, step=2):
 
     # Set camera position
     mlab.view(distance=5)
+
+    # Calculate default vector from camera to neck joint
+    neck = [motion[9][2][i], motion[9][0][i], motion[9][1][2]]
+    cam, _ = mlab.move()
+    to_cam = neck - cam
+
+    camera_motions = []
 
     # Frame by frame rendering
     images = []
@@ -162,6 +169,18 @@ def generate_conditioning_frames(motion, start=0, stop=500, step=2):
                 z=[motion[con[0][0]][1][i], motion[con[0][1]][1][i]],
             )
 
+        # Print neck
+        neck = [motion[9][2][i], motion[9][0][i], motion[9][1][2]]
+        cam, _ = mlab.move()
+        move = cam - neck + to_cam
+        if np.linalg.norm([move[0], move[1]]) > 0.5:
+            multiplier = 0.1
+            x, y = move[0] * multiplier, move[1] * multiplier
+            camera_motions.append((x, y))
+            mlab.move([x, y, 0])
+        else:
+            camera_motions.append((0.0, 0.0))
+
         # Re-enable rendering
         figure.scene.disable_render = False
 
@@ -171,5 +190,5 @@ def generate_conditioning_frames(motion, start=0, stop=500, step=2):
         # Append rendered frame to list
         images.append(Image.fromarray(img))
 
-    # Resize frames to 512x512
-    return [img.resize((512, 512)) for img in images]
+    # Return camera motions and rendered conditioning frames
+    return (camera_motions, images)

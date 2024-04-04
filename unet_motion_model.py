@@ -111,8 +111,6 @@ class MotionAdapter(ModelMixin, ConfigMixin):
                 Whether to use a motion module in the middle of the UNet.
         """
 
-        print('test')
-
         super().__init__()
         down_blocks = []
         up_blocks = []
@@ -829,6 +827,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
         added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
         down_block_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
         mid_block_additional_residual: Optional[torch.Tensor] = None,
+        set_adapters=None,
+        camera_motions=None,
         return_dict: bool = True,
     ) -> Union[UNet3DConditionOutput, Tuple[torch.Tensor]]:
         r"""
@@ -935,6 +935,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
 
         # 3. down
         down_block_res_samples = (sample,)
+        print("test", sample[0].shape)
+        print("test", emb.shape)
         for downsample_block in self.down_blocks:
             if (
                 hasattr(downsample_block, "has_cross_attention")
@@ -947,10 +949,16 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
                     attention_mask=attention_mask,
                     num_frames=num_frames,
                     cross_attention_kwargs=cross_attention_kwargs,
+                    set_adapters=set_adapters,
+                    camera_motions=camera_motions,
                 )
             else:
                 sample, res_samples = downsample_block(
-                    hidden_states=sample, temb=emb, num_frames=num_frames
+                    hidden_states=sample,
+                    temb=emb,
+                    num_frames=num_frames,
+                    set_adapters=set_adapters,
+                    camera_motions=camera_motions,
                 )
 
             down_block_res_samples += res_samples
@@ -979,6 +987,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
                     attention_mask=attention_mask,
                     num_frames=num_frames,
                     cross_attention_kwargs=cross_attention_kwargs,
+                    set_adapters=set_adapters,
+                    camera_motions=camera_motions,
                 )
             else:
                 sample = self.mid_block(
@@ -987,6 +997,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
                     encoder_hidden_states=encoder_hidden_states,
                     attention_mask=attention_mask,
                     cross_attention_kwargs=cross_attention_kwargs,
+                    set_adapters=set_adapters,
+                    camera_motions=camera_motions,
                 )
 
         if mid_block_additional_residual is not None:
@@ -1019,6 +1031,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
                     attention_mask=attention_mask,
                     num_frames=num_frames,
                     cross_attention_kwargs=cross_attention_kwargs,
+                    set_adapters=set_adapters,
+                    camera_motions=camera_motions,
                 )
             else:
                 sample = upsample_block(
@@ -1027,6 +1041,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
                     res_hidden_states_tuple=res_samples,
                     upsample_size=upsample_size,
                     num_frames=num_frames,
+                    set_adapters=set_adapters,
+                    camera_motions=camera_motions,
                 )
 
         # 6. post-process

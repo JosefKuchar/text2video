@@ -21,8 +21,8 @@ from torch import nn
 
 from diffusers.utils import deprecate, is_torch_version, logging
 from diffusers.utils.torch_utils import apply_freeu
-from diffusers.models.attention import Attention
-from diffusers.models.resnet import (
+from attention import Attention
+from resnet import (
     Downsample2D,
     ResnetBlock2D,
     SpatioTemporalResBlock,
@@ -30,7 +30,7 @@ from diffusers.models.resnet import (
     Upsample2D,
 )
 from diffusers.models.transformers.dual_transformer_2d import DualTransformer2DModel
-from diffusers.models.transformers.transformer_2d import Transformer2DModel
+from transformer_2d import Transformer2DModel
 from diffusers.models.transformers.transformer_temporal import (
     TransformerSpatioTemporalModel,
     TransformerTemporalModel,
@@ -67,12 +67,41 @@ def generate_weight_sequence(n):
     return weight_sequence
 
 
-def chunked_motion_module(motion_module, hidden_states, num_frames):
+def calculate_active_loras(camera_motions, t_start, t_end):
+    # Treshold for activating motion LoRA
+    threshold_horizontal = 0.08
+    threshold_vertical = 0.04
+
+    active_loras = []
+
+    # Get current window
+    window = torch.tensor(camera_motions[t_start:t_end])
+    # Calculate average motion vector
+    avg_motion = torch.mean(window, dim=0)
+
+    if -avg_motion[0] > threshold_horizontal:
+        active_loras.append("left")
+    if avg_motion[0] > threshold_horizontal:
+        active_loras.append("right")
+    if avg_motion[1] > threshold_vertical:
+        active_loras.append("up")
+    if -avg_motion[1] > threshold_vertical:
+        active_loras.append("down")
+    # logger.info(f"Active LoRAs: {active_loras}")
+    return active_loras
+
+
+def chunked_motion_module(
+    motion_module, hidden_states, num_frames, set_adapters, camera_motions
+):
     views = get_views(num_frames)
     hidden_states = rearrange(hidden_states, "(b f) d c e -> b f d c e", f=num_frames)
     count = torch.zeros_like(hidden_states)
     value = torch.zeros_like(hidden_states)
     for t_start, t_end in views:
+        active_loras = calculate_active_loras(camera_motions, t_start, t_end)
+        set_adapters(active_loras, adapter_weights=[0.7] * len(active_loras))
+
         weight_sequence = generate_weight_sequence(t_end - t_start)
         weight_tensor = torch.ones_like(count[:, t_start:t_end])
         weight_tensor = weight_tensor * torch.Tensor(weight_sequence).to(
@@ -1082,6 +1111,8 @@ class DownBlockMotion(nn.Module):
         hidden_states: torch.FloatTensor,
         temb: Optional[torch.FloatTensor] = None,
         num_frames: int = 1,
+        set_adapters=None,
+        camera_motions=None,
         *args,
         **kwargs,
     ) -> Union[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
@@ -1116,7 +1147,7 @@ class DownBlockMotion(nn.Module):
             else:
                 hidden_states = resnet(hidden_states, temb)
             hidden_states = chunked_motion_module(
-                motion_module, hidden_states, num_frames
+                motion_module, hidden_states, num_frames, set_adapters, camera_motions
             )
 
             output_states = output_states + (hidden_states,)
@@ -1184,6 +1215,7 @@ class CrossAttnDownBlockMotion(nn.Module):
             )
 
             if not dual_cross_attention:
+                print("normal attn")
                 attentions.append(
                     Transformer2DModel(
                         num_attention_heads,
@@ -1199,6 +1231,7 @@ class CrossAttnDownBlockMotion(nn.Module):
                     )
                 )
             else:
+                print("dual attn")
                 attentions.append(
                     DualTransformer2DModel(
                         num_attention_heads,
@@ -1255,6 +1288,8 @@ class CrossAttnDownBlockMotion(nn.Module):
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         additional_residuals: Optional[torch.FloatTensor] = None,
+        set_adapters=None,
+        camera_motions=None,
     ):
         if cross_attention_kwargs is not None:
             if cross_attention_kwargs.get("scale", None) is not None:
@@ -1305,7 +1340,7 @@ class CrossAttnDownBlockMotion(nn.Module):
                     return_dict=False,
                 )[0]
             hidden_states = chunked_motion_module(
-                motion_module, hidden_states, num_frames
+                motion_module, hidden_states, num_frames, set_adapters, camera_motions
             )
 
             # apply additional residuals to the output of the last pair of resnet and attention blocks
@@ -1444,6 +1479,8 @@ class CrossAttnUpBlockMotion(nn.Module):
         attention_mask: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         num_frames: int = 1,
+        set_adapters=None,
+        camera_motions=None,
     ) -> torch.FloatTensor:
         if cross_attention_kwargs is not None:
             if cross_attention_kwargs.get("scale", None) is not None:
@@ -1517,7 +1554,7 @@ class CrossAttnUpBlockMotion(nn.Module):
                     return_dict=False,
                 )[0]
             hidden_states = chunked_motion_module(
-                motion_module, hidden_states, num_frames
+                motion_module, hidden_states, num_frames, set_adapters, camera_motions
             )
 
         if self.upsamplers is not None:
@@ -1606,6 +1643,8 @@ class UpBlockMotion(nn.Module):
         temb: Optional[torch.FloatTensor] = None,
         upsample_size=None,
         num_frames: int = 1,
+        set_adapters=None,
+        camera_motions=None,
         *args,
         **kwargs,
     ) -> torch.FloatTensor:
@@ -1664,7 +1703,7 @@ class UpBlockMotion(nn.Module):
             else:
                 hidden_states = resnet(hidden_states, temb)
             hidden_states = chunked_motion_module(
-                motion_module, hidden_states, num_frames
+                motion_module, hidden_states, num_frames, set_adapters, camera_motions
             )
 
         if self.upsamplers is not None:
@@ -1793,6 +1832,8 @@ class UNetMidBlockCrossAttnMotion(nn.Module):
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         num_frames: int = 1,
+        set_adapters=None,
+        camera_motions=None,
     ) -> torch.FloatTensor:
         if cross_attention_kwargs is not None:
             if cross_attention_kwargs.get("scale", None) is not None:
@@ -1848,7 +1889,11 @@ class UNetMidBlockCrossAttnMotion(nn.Module):
                     return_dict=False,
                 )[0]
                 hidden_states = chunked_motion_module(
-                    motion_module, hidden_states, num_frames
+                    motion_module,
+                    hidden_states,
+                    num_frames,
+                    set_adapters,
+                    camera_motions,
                 )
                 hidden_states = resnet(hidden_states, temb)
 

@@ -4,5 +4,7 @@
 - LORA loader
 
 
+- Gradio custom block
+
 Models:
 frankjoshua/toonyou_beta6

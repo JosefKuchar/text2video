@@ -11,3 +11,4 @@ test
 *.pth
 cache
 old
+flagged/

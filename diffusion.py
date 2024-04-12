@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_video(args, conditioning_frames, scenario, lengths):
-    n = 256
+    n = 128
 
     logger.info("Loading AnimateDiff motion adapter")
     adapter = MotionAdapter().to("cuda", torch.float16)

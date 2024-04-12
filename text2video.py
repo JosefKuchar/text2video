@@ -9,7 +9,7 @@ import logging
 from args import parse_args
 from diffusion import generate_video
 import json
-from llm import generate_scenario
+from scenario import generate_scenario
 
 if __name__ == "__main__":
     # Disable some warnings

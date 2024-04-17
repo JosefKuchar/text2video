@@ -28,13 +28,13 @@ def parse_args():
     )
     parser.add_argument(
         "--motion-adapter-variant",
-        default="animatediff_lightning_8step_diffusers.safetensors",
+        default="animatediff_lightning_4step_diffusers.safetensors",
         help="Model variant for the motion adapter",
     )
     parser.add_argument(
         "--steps",
         type=int,
-        default=8,
+        default=4,
         help="Number of steps for the diffusion model",
     )
     parser.add_argument("--guidance-scale", type=float, default=1.0)

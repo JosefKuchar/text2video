@@ -362,9 +362,6 @@ class BasicTransformerBlock(nn.Module):
         )
         gligen_kwargs = cross_attention_kwargs.pop("gligen", None)
 
-        print(norm_hidden_states.shape)
-        # Find how much memory
-        print(norm_hidden_states.storage().nbytes())
 
         attn_output = self.attn1(
             norm_hidden_states,

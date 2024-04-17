@@ -14,7 +14,7 @@ from scenario import generate_scenario
 if __name__ == "__main__":
     # Disable some warnings
     warnings.filterwarnings("ignore", category=FutureWarning)
-    warnings.filterwarnings("ignore", category=UserWarning)
+    # warnings.filterwarnings("ignore", category=UserWarning)
 
     # Set up logging
     coloredlogs.DEFAULT_LOG_FORMAT = (

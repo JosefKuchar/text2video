@@ -41,14 +41,16 @@ from einops import rearrange
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-def get_views(video_length, window_size=16, stride=4):
-    num_blocks_time = (video_length - window_size) // stride + 1
-    views = []
-    for i in range(num_blocks_time):
-        t_start = int(i * stride)
-        t_end = t_start + window_size
-        views.append((t_start, t_end))
-    return views
+def get_views(video_length, window_size=16, overlap=4):
+    ranges = [
+        (i, i + window_size)
+        for i in range(0, video_length - window_size + 1, window_size - overlap)
+    ]
+    if len(ranges) == 0:
+        ranges.append((0,video_length))
+    elif ranges[-1][-1] != video_length:
+        ranges.append((ranges[-1][-1] - overlap, video_length))
+    return ranges
 
 
 def generate_weight_sequence(n):
@@ -1215,7 +1217,6 @@ class CrossAttnDownBlockMotion(nn.Module):
             )
 
             if not dual_cross_attention:
-                print("normal attn")
                 attentions.append(
                     Transformer2DModel(
                         num_attention_heads,
@@ -1231,7 +1232,6 @@ class CrossAttnDownBlockMotion(nn.Module):
                     )
                 )
             else:
-                print("dual attn")
                 attentions.append(
                     DualTransformer2DModel(
                         num_attention_heads,

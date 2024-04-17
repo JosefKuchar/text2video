@@ -32,9 +32,11 @@ class EmbedManager:
 
         logger.info("Precomputing conditioning tensors")
         for prompt in tqdm(prompts):
-            # query = f'("masterpiece, best quality, {self.character_description}", "masterpiece, best quality, {prompt[1]}", "masterpiece, best quality, {prompt[0]}").and()'
-            query = f"masterpiece, best quality, {self.character_description}, {prompt[1]}, {prompt[0]}"
-            print(query)
+            query = (
+                f'("{self.character_description}", "{prompt[1]}", "{prompt[0]}").and()'
+            )
+            # query = f"masterpiece, best quality, {self.character_description}, {prompt[1]}, {prompt[0]}"
+            # query = "classic disney style magical princess with golden hair"
             conditioning = self.compel.build_conditioning_tensor(query)
             self.embeds.append((conditioning, prompt[2]))
 
@@ -64,8 +66,12 @@ class EmbedManager:
         return torch.cat(tensors, dim=0)
 
     def get_negative_embeds(self) -> torch.Tensor:
-        general_negative = self.compel.build_conditioning_tensor(
-            "worst quality, low quality"
-            # '("worst quality, low quality","worst quality, low quality","worst quality, low quality").and()"'
+        """
+        Get negative conditioning tensors for the whole video
+        """
+
+        general_negative = "worst quality, low quality"
+        negative_embeds = self.compel.build_conditioning_tensor(
+            f'("{general_negative}","{general_negative}","{general_negative}").and()"'
         )
-        return general_negative.repeat_interleave(repeats=self.video_len, dim=0)
+        return negative_embeds.repeat_interleave(repeats=self.video_len, dim=0)

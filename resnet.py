@@ -359,7 +359,7 @@ class ResnetBlock2D(nn.Module):
     def forward(
         self, input_tensor: torch.FloatTensor, temb: torch.FloatTensor, *args, **kwargs
     ) -> torch.FloatTensor:
-        print("resnet 2d forward", input_tensor.shape, temb.shape)
+        # print("resnet 2d forward", input_tensor.shape, temb.shape)
         num_chunks = input_tensor.shape[0]
         ff_output = torch.cat(
             [

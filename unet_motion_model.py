@@ -875,7 +875,7 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
         upsample_size = None
 
         if any(s % default_overall_up_factor != 0 for s in sample.shape[-2:]):
-            logger.info("Forward upsample size to force interpolation output size.")
+            # logger.info("Forward upsample size to force interpolation output size.")
             forward_upsample_size = True
 
         # prepare attention_mask
@@ -935,8 +935,6 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
 
         # 3. down
         down_block_res_samples = (sample,)
-        print("test", sample[0].shape)
-        print("test", emb.shape)
         for downsample_block in self.down_blocks:
             if (
                 hasattr(downsample_block, "has_cross_attention")

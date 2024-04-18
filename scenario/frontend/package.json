@@ -14,8 +14,14 @@
   },
   "dependencies": {
     "@gradio/atoms": "0.6.1",
+    "@gradio/button": "^0.2.30",
     "@gradio/icons": "0.3.4",
+    "@gradio/json": "^0.1.14",
     "@gradio/statustracker": "0.4.10",
-    "@gradio/utils": "0.3.0"
+    "@gradio/textbox": "^0.4.15",
+    "@gradio/utils": "0.3.0",
+    "svelte-dnd-action": "^0.9.43",
+    "svelte-dnd-list": "^0.1.8",
+    "svrollbar": "^0.12.0"
   }
 }

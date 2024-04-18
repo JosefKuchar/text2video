@@ -32,10 +32,10 @@ class EmbedManager:
 
         logger.info("Precomputing conditioning tensors")
         for prompt in tqdm(prompts):
-            query = (
-                f'("{self.character_description}", "{prompt[1]}", "{prompt[0]}").and()'
-            )
-            # query = f"masterpiece, best quality, {self.character_description}, {prompt[1]}, {prompt[0]}"
+            # query = (
+            #     f'("{self.character_description}", "{prompt[1]}", "{prompt[0]}").and()'
+            # )
+            query = f"({self.character_description})++++, {prompt[1]}, {prompt[0]}"
             # query = "classic disney style magical princess with golden hair"
             conditioning = self.compel.build_conditioning_tensor(query)
             self.embeds.append((conditioning, prompt[2]))
@@ -72,6 +72,7 @@ class EmbedManager:
 
         general_negative = "worst quality, low quality"
         negative_embeds = self.compel.build_conditioning_tensor(
-            f'("{general_negative}","{general_negative}","{general_negative}").and()"'
+            # f'("{general_negative}","{general_negative}","{general_negative}").and()"'
+            f"{general_negative}"
         )
         return negative_embeds.repeat_interleave(repeats=self.video_len, dim=0)

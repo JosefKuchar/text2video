@@ -7,14 +7,15 @@ from priorMDM.infer import main
 import coloredlogs
 import logging
 from args import parse_args
-from diffusion import generate_video
+from diffusion import generate_video, create_pipeline
 import json
-from scenario import generate_scenario
+import jsonschema
+from scenario import generate_scenario, validate_scenario
 
 if __name__ == "__main__":
     # Disable some warnings
     warnings.filterwarnings("ignore", category=FutureWarning)
-    # warnings.filterwarnings("ignore", category=UserWarning)
+    warnings.filterwarnings("ignore", category=UserWarning)
 
     # Set up logging
     coloredlogs.DEFAULT_LOG_FORMAT = (
@@ -32,36 +33,42 @@ if __name__ == "__main__":
     else:
         scenario = generate_scenario(args.prompt)
 
-    if not args.skip_motion:
+    try:
+        validate_scenario(scenario)
+    except jsonschema.exceptions.ValidationError as e:
+        logger.error("Invalid scenario")
+        logger.error(e)
+        exit(1)
+
+    pipeline = create_pipeline(args)
+
+    video = []
+    video_conditioning = []
+    for i, scene in enumerate(scenario):
+        logger.info(f"Generating scene #{i + 1}")
         prompts = [
-            (scene["motion_description"], scene["length"] * 20)
-            for scene in scenario["scenes"]
+            (action["motion_description"], action["length"] * 20)
+            for action in scene["actions"]
         ]
-        print(prompts)
 
         results = main(prompts)
         motion = results["motion"][0]
         lengths = results["lengths"]
 
-        # Save the motion data
-        if args.cache:
-            torch.save(motion, "cache/motion.pt")
-            torch.save(lengths, "cache/lengths.pt")
-    else:
-        motion = torch.load("cache/motion.pt")
-        lengths = torch.load("cache/lengths.pt")
-
-    if not args.skip_motion_rendering:
+        # Generate conditioning frames
         conditioning_frames = generate_conditioning_frames(
             motion=motion, start=0, stop=motion.shape[2], step=2
         )
-        if args.cache:
-            torch.save(conditioning_frames, "cache/conditioning_frames.pt")
-    else:
-        conditioning_frames = torch.load("cache/conditioning_frames.pt")
 
-    # Save the conditioning frames
-    imageio.mimsave("conditioning.mp4", conditioning_frames[1], fps=10, codec="libx264")
+        # Generate the video
+        frames = generate_video(pipeline, args, conditioning_frames, scene, lengths)
 
-    # Generate the video
-    generate_video(args, conditioning_frames, scenario, lengths)
+        # Flat append to frames
+        video.extend(frames)
+        video_conditioning.extend(conditioning_frames[1])
+
+    # Save the video
+    logger.info("Saving the video")
+    imageio.mimsave("result.mp4", video, fps=10, codec="libx264")
+    imageio.mimsave("conditioning.mp4", video_conditioning, fps=10, codec="libx264")
+    logger.info("Successfully generated video")

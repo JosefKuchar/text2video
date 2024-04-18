@@ -11,7 +11,6 @@ from embed_manager import EmbedManager
 from tqdm import tqdm
 import logging
 import torch
-import imageio
 import math
 
 logger = logging.getLogger(__name__)
@@ -31,7 +30,7 @@ def get_chunk_windows(n: int, window_size: int, overlap: int):
         for i in range(0, n - window_size + 1, window_size - overlap)
     ]
     if len(ranges) == 0:
-        ranges.append(range(0,n))
+        ranges.append(range(0, n))
     elif ranges[-1][-1] != n - 1:
         ranges.append(range(ranges[-1][-1] - overlap, n))
     return ranges
@@ -70,7 +69,7 @@ def generate_freenoise_latents(n: int, generator: torch.Generator):
     return latents[:, :, :n, :, :]
 
 
-def generate_video(args, conditioning_frames, scenario, lengths):
+def create_pipeline(args):
     logger.info("Loading AnimateDiff motion adapter")
     adapter = MotionAdapter().to("cuda", torch.float16)
     adapter.load_state_dict(
@@ -103,20 +102,7 @@ def generate_video(args, conditioning_frames, scenario, lengths):
         controlnet=controlnet,
         vae=vae,
         custom_pipeline="./pipeline.py",
-        # image_encoder=image_encoder,
     ).to(device="cuda", dtype=torch.float16)
-
-    embed_manager = EmbedManager(
-        lengths[-1],
-        scenario["character_description"],
-        pipe.tokenizer,
-        pipe.text_encoder,
-    )
-    prompts = [
-        (scene["scene_description"], scene["motion_description"], length // 2)
-        for scene, length in zip(scenario["scenes"], lengths)
-    ]
-    embed_manager.precompute_embeds(prompts)
 
     logger.info("Setting up scheduler")
     pipe.scheduler = DPMSolverMultistepScheduler.from_pretrained(
@@ -179,6 +165,22 @@ def generate_video(args, conditioning_frames, scenario, lengths):
     # pipe.set_adapters(["willie"], adapter_weights=[0.9])
     pipe.enable_vae_slicing()
 
+    return pipe
+
+
+def generate_video(pipe, args, conditioning_frames, scenario, lengths):
+    embed_manager = EmbedManager(
+        lengths[-1],
+        scenario["character_description"],
+        pipe.tokenizer,
+        pipe.text_encoder,
+    )
+    prompts = [
+        (scene["scene_description"], scene["motion_description"], length // 2)
+        for scene, length in zip(scenario["actions"], lengths)
+    ]
+    embed_manager.precompute_embeds(prompts)
+
     n = len(conditioning_frames[1])
     embeds = embed_manager.get_embed_window(0, n)
     negative_embeds = embed_manager.get_negative_embeds()
@@ -223,6 +225,7 @@ def generate_video(args, conditioning_frames, scenario, lengths):
                         controlnet_conditioning_scale=[1.0],
                         camera_motions=[conditioning_frames[0][i] for i in r],
                         output_type="latent",
+                        clip_skip=2,
                     )
                     # Update immediate latents
                     sum_latents[:, :, r, :, :] += result.frames
@@ -235,11 +238,9 @@ def generate_video(args, conditioning_frames, scenario, lengths):
                 latents = sum_latents / num_processed.view(1, 1, n, 1, 1)
 
         # Decode the latents to video
+        logger.info("Decoding latents")
         frames = pipe.decode_latents(latents)
         video = pipe.tensor2vid(frames, "pil")[0]
 
-        # Save the video
-        imageio.mimsave("result.mp4", video, fps=10, codec="libx264")
-        if not args.skip_upscaling:
-            video = upscale(video)
-            imageio.mimsave("result_upscaled.mp4", video, fps=10, codec="libx264")
+        # Return final upscaled video
+        return upscale(video)

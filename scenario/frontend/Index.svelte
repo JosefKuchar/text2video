@@ -302,7 +302,7 @@
               <BaseTextbox
                 type="text"
                 label="Scene description"
-                bind:value={value[i].actions[j].character_description}
+                bind:value={value[i].actions[j].scene_description}
                 {placeholder}
                 on:input={handle_change}
                 disabled={!interactive}

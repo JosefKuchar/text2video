@@ -27,3 +27,11 @@ def get_overlap(a: tuple[int, int], b: tuple[int, int]):
     """Get number of overlapping elements between two ranges."""
 
     return max(0, min(a[1], b[1]) - max(a[0], b[0]))
+
+
+class dotdict(dict):
+    """Dictionary with dot access to keys."""
+
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__

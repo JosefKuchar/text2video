@@ -18,17 +18,20 @@ from gradio_scenario import Scenario
 
 
 example = Scenario().example_value()
+scenario = Scenario()
+
+def x(value):
+    return value
 
 demo = gr.Interface(
-    lambda x: x,
-    Scenario(),  # interactive version of your component
-    Scenario(),  # static version of your component
-    # examples=[[example]],  # uncomment this line to view the "example version" of your component
+    x,
+    scenario,
+    scenario,
 )
 
 
 if __name__ == "__main__":
-    demo.launch(share=True)
+    demo.launch()
 
 ```
 
@@ -237,12 +240,12 @@ The impact on the users predict function varies depending on whether the compone
 The code snippet below is accurate in cases where the component is used as both an input and an output.
 
 - **As output:** Is passed, passes text value as a {str} into the function.
-- **As input:** Should return, expects a {str} returned from function and sets textarea value to it.
+
 
  ```python
  def predict(
      value: str | None
- ) -> str | None:
+ ) -> Unknown:
      return value
  ```
  

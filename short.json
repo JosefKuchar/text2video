@@ -1,20 +1,32 @@
-{
-    "character_description": "classic disney style magical princess with golden hair",
-    "scenes": [
-        {
-            "length": 4,
-            "motion_description": "is walking slowly",
-            "scene_description": "park is vibrant with the colors of various flowers and the lush green of the grass. The sun is shining brightly, casting playful shadows through the leaves of tall trees. Children are playing in the distance, and there's a gentle breeze."
-        },
-        {
-            "length": 5,
-            "motion_description": "is sitting on a bench",
-            "scene_description": "bench is located under a large oak tree, providing a perfect blend of sunlight and shade. The scene is peaceful, with the occasional sound of birds chirping and leaves rustling. People are walking by, some with their dogs, creating a lively atmosphere."
-        },
-        {
-            "length": 3,
-            "motion_description": "is standing by a fountain",
-            "scene_description": "fountain is surrounded by colorful flowers and lush greenery. The water is crystal clear, reflecting the sunlight in a dazzling display. The sound of water splashing is soothing, creating a serene atmosphere."
-        }
-    ]
-}
+[
+    {
+        "character_description": "classic disney style magical princess with golden hair",
+        "scenes": [
+            {
+                "length": 4,
+                "motion_description": "is walking slowly",
+                "scene_description": "park is vibrant with the colors of various flowers and the lush green of the grass. The sun is shining brightly, casting playful shadows through the leaves of tall trees. Children are playing in the distance, and there's a gentle breeze."
+            }
+        ]
+    },
+    {
+        "character_description": "robot with a heart of gold",
+        "scenes": [
+            {
+                "length": 4,
+                "motion_description": "is doing a little dance",
+                "scene_description": "park is vibrant with the colors of various flowers and the lush green of the grass. The sun is shining brightly, casting playful shadows through the leaves of tall trees. Children are playing in the distance, and there's a gentle breeze."
+            },
+            {
+                "length": 5,
+                "motion_description": "is walking slowly",
+                "scene_description": "bench is located under a large oak tree, providing a perfect blend of sunlight and shade. The scene is peaceful, with the occasional sound of birds chirping and leaves rustling. People are walking by, some with their dogs, creating a lively atmosphere."
+            },
+            {
+                "length": 5,
+                "motion_description": "is doing backflips",
+                "scene_description": "fountain is surrounded by colorful flowers and lush greenery. The water is crystal clear, reflecting the sunlight in a dazzling display. The sound of water splashing is soothing, creating a serene atmosphere."
+            }
+        ]
+    }
+]

@@ -3,14 +3,17 @@ from gradio_scenario import Scenario
 
 
 example = Scenario().example_value()
+scenario = Scenario()
+
+def x(value):
+    return value
 
 demo = gr.Interface(
-    lambda x: x,
-    Scenario(),  # interactive version of your component
-    Scenario(),  # static version of your component
-    # examples=[[example]],  # uncomment this line to view the "example version" of your component
+    x,
+    scenario,
+    scenario,
 )
 
 
 if __name__ == "__main__":
-    demo.launch(share=True)
+    demo.launch()

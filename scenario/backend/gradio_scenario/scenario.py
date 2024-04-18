@@ -66,23 +66,47 @@ class Scenario(FormComponent):
             render=render,
         )
 
-    def preprocess(self, payload: str | None) -> str | None:
+    def preprocess(self, payload) -> str | None:
         """
         Parameters:
             payload: the text entered in the textarea.
         Returns:
             Passes text value as a {str} into the function.
         """
-        return None if payload is None else str(payload)
 
-    def postprocess(self, value: str | None) -> str | None:
+        if payload is None:
+            return None
+
+        # Strip id fields
+        for scene in payload:
+            del scene['id']
+            for action in scene['actions']:
+                del action['id']
+
+        return payload
+
+    def postprocess(self, value) -> str | None:
         """
         Parameters:
             value: Expects a {str} returned from function and sets textarea value to it.
         Returns:
             The value to display in the textarea.
         """
-        return None if value is None else str(value)
+
+        if value is None:
+            return None
+
+        # Add id fields
+        id = 0
+        for scene in value:
+            scene['id'] = id
+            id += 1
+            action_id = 0
+            for action in scene['actions']:
+                action['id'] = action_id
+                action_id += 1
+
+        return value
 
     def api_info(self) -> dict[str, Any]:
         return {"type": "string"}

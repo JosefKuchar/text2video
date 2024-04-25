@@ -9,11 +9,12 @@ from huggingface_hub import hf_hub_download
 from embed_manager import EmbedManager
 from tqdm import tqdm
 from util import dotdict
+from PIL import Image
 import PIL
 import logging
 import torch
 import math
-import config
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,8 @@ def generate_freenoise_latents(n: int, generator: torch.Generator):
             1,
             4,
             n_rounded,
-            config["diffusion_resolution"][1] / 8,
-            config["diffusion_resolution"][0] / 8,
+            config["diffusion_resolution"][1] // 8,
+            config["diffusion_resolution"][0] // 8,
         ],
         device="cuda",
         dtype=torch.float16,
@@ -198,16 +199,23 @@ def generate_scene(
     """
 
     with torch.no_grad():
+        no_mdm = len(scenario["character_description"].strip()) == 0
+
         generator = torch.Generator(device="cuda")
         if args.seed:
             generator = generator.manual_seed(args.seed)
 
-        logger.info("Generating IP image")
-        ip_pipe = create_pipeline_ip(args)
-        ip_image = ip_pipe(
-            scenario["character_description"], generator=generator
-        ).images[0]
-        del ip_pipe
+        if not no_mdm:
+            logger.info("Generating IP image")
+            pipe.set_ip_adapter_scale([args.ip_adapter_scale])
+            ip_pipe = create_pipeline_ip(args)
+            ip_image = ip_pipe(
+                scenario["character_description"], generator=generator
+            ).images[0]
+            del ip_pipe
+        else:
+            pipe.set_ip_adapter_scale([0.0])
+            ip_image = Image.new("RGB", (512, 512))
 
         embed_manager = EmbedManager(
             lengths[-1],
@@ -216,7 +224,11 @@ def generate_scene(
             pipe.text_encoder,
         )
         prompts = [
-            (scene["scene_description"], scene["motion_description"], length // 2)
+            (
+                scene["scene_description"],
+                scene["motion_description"],
+                length // (config["mdm_fps"] // config["video_fps"]),
+            )
             for scene, length in zip(scenario["actions"], lengths)
         ]
         embed_manager.precompute_embeds(prompts)
@@ -258,7 +270,7 @@ def generate_scene(
                         do_inference_steps=1,
                         generator=generator,
                         latents=latents[:, :, r, :, :],
-                        controlnet_conditioning_scale=[1.0],
+                        controlnet_conditioning_scale=[0.0 if no_mdm else 1.0],
                         camera_motions=[conditioning_frames[0][i] for i in r],
                         output_type="latent",
                     )

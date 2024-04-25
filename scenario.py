@@ -33,6 +33,9 @@ schema = {
                 },
             },
         },
+        "required": [
+            "actions",
+        ],
     },
 }
 
@@ -58,6 +61,7 @@ def validate_schema(scenario: dict):
         jsonschema.validate(scenario, schema)
     except jsonschema.ValidationError as e:
         raise ScenarioValidationError(str(e))
+
 
 def validate_scenario(scenario: dict):
     """

@@ -9,7 +9,7 @@ from pyvirtualdisplay import Display
 from tqdm import tqdm
 import util
 import logging
-import config
+from config import config
 
 logger = logging.getLogger(__name__)
 

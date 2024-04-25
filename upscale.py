@@ -14,7 +14,7 @@ from realesrgan import RealESRGANer
 from tqdm import tqdm
 from util import cv2_to_pil, pil_to_cv2
 import logging
-import config
+from config import config
 import cv2
 
 model = SRVGGNetCompact(

@@ -1,4 +1,4 @@
 {
-    "python.defaultInterpreterPath": "/tmp/xkucha28/miniconda3/envs/gen/bin/python",
+    "python.defaultInterpreterPath": "/tmp/xkucha28/miniconda3/envs/text2video/bin/python",
     "editor.formatOnSave": true
 }

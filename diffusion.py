@@ -1,6 +1,6 @@
 from diffusers import AutoencoderKL
 from unet_motion_model import MotionAdapter
-from diffusers.pipelines import DiffusionPipeline
+from diffusers.pipelines import DiffusionPipeline, StableDiffusionPipeline
 from diffusers.schedulers import DPMSolverMultistepScheduler
 from controlnet import ControlNetModel
 from upscale import upscale
@@ -115,31 +115,14 @@ def create_pipeline(args):
         final_sigmas_type="sigma_min",
     )
 
-    # logger.info("Loading IP adapter")
-    # pipe.load_ip_adapter(
-    #     "h94/IP-Adapter",
-    #     subfolder="models",
-    #     weight_name=["ip-adapter_sd15.safetensors", "ip-adapter-full-face_sd15.bin"],
-    # )
-    # pipe.set_ip_adapter_scale([0.7, 0.3])
-
-    # logger.info("Loading IP adapter")
-    # pipe.load_ip_adapter(
-    #     "h94/IP-Adapter",
-    #     subfolder="models",
-    #     weight_name=["ip-adapter_sd15.safetensors"],
-    # )
-    # pipe.set_ip_adapter_scale([0.7])
-
-    # style_folder = (
-    #     "https://huggingface.co/datasets/YiYiXu/testing-images/resolve/main/style_ziggy"
-    # )
-    # face_image = [
-    #     load_image(
-    #         "https://huggingface.co/datasets/YiYiXu/testing-images/resolve/main/women_input.png"
-    #     )
-    # ]
-    # style_images = [load_image(f"{style_folder}/img{i}.png") for i in range(10)]
+    if args.model_ip_adapter:
+        logger.info("Loading IP adapter")
+        pipe.load_ip_adapter(
+            "h94/IP-Adapter",
+            subfolder="models",
+            weight_name=["ip-adapter_sd15.safetensors"],
+        )
+        pipe.set_ip_adapter_scale([args.ip_adapter_scale])
 
     logger.info("Loading motion LoRA adapters")
     pipe.load_lora_weights(
@@ -160,15 +143,26 @@ def create_pipeline(args):
     )
     # Disable LoRA adapters - they are managed by chunked motion adapter
     pipe.set_adapters([], adapter_weights=[])
-
-    # pipe.load_lora_weights("lora/Willie.safetensors", "willie")
-    # pipe.set_adapters(["willie"], adapter_weights=[0.9])
     pipe.enable_vae_slicing()
 
     return pipe
 
+def create_pipeline_ip(args):
+    pipe = StableDiffusionPipeline.from_pretrained(
+        args.model_ip_adapter, torch_dtype=torch.float16
+    ).to("cuda")
+    return pipe
 
-def generate_video(pipe, args, conditioning_frames, scenario, lengths):
+def generate_scene(pipe, args, conditioning_frames, scenario, lengths):
+    logger.info("Generating IP image")
+    ip_pipe = create_pipeline_ip(args)
+    ip_image = ip_pipe(scenario["character_description"]).images[0]
+    # Save ip image for debug
+    # TODO: Remove this
+    ip_image.save("ip.jpg")
+    # Delete pipeline for memory
+    del ip_pipe
+
     embed_manager = EmbedManager(
         lengths[-1],
         scenario["character_description"],
@@ -210,8 +204,8 @@ def generate_video(pipe, args, conditioning_frames, scenario, lengths):
                 for r in ranges:
                     result = pipe(
                         prompt_embeds=embeds[r],
+                        ip_adapter_image=[ip_image],
                         negative_prompt_embeds=negative_embeds[r],
-                        # ip_adapter_image=style_images,
                         width=912,
                         height=512,
                         guidance_scale=args.guidance_scale,
@@ -225,7 +219,6 @@ def generate_video(pipe, args, conditioning_frames, scenario, lengths):
                         controlnet_conditioning_scale=[1.0],
                         camera_motions=[conditioning_frames[0][i] for i in r],
                         output_type="latent",
-                        clip_skip=2,
                     )
                     # Update immediate latents
                     sum_latents[:, :, r, :, :] += result.frames
@@ -242,5 +235,5 @@ def generate_video(pipe, args, conditioning_frames, scenario, lengths):
         frames = pipe.decode_latents(latents)
         video = pipe.tensor2vid(frames, "pil")[0]
 
-        # Return final upscaled video
-        return upscale(video)
+        # Return final upscaled video and IP image
+        return (upscale(video), ip_image)

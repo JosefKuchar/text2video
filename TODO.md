@@ -1,5 +1,6 @@
 - IP adapter loader
 - LORA loader
 
-Models:
-frankjoshua/toonyou_beta6
+- odchytavat errory a zobrazit pomoci gradio error
+
+Autoinstalace gradio scenario

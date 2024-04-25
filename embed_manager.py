@@ -35,7 +35,7 @@ class EmbedManager:
             # query = (
             #     f'("{self.character_description}", "{prompt[1]}", "{prompt[0]}").and()'
             # )
-            query = f"({self.character_description})++++, {prompt[1]}, {prompt[0]}"
+            query = f"({self.character_description})+, {prompt[1]}, {prompt[0]}"
             # query = "classic disney style magical princess with golden hair"
             conditioning = self.compel.build_conditioning_tensor(query)
             self.embeds.append((conditioning, prompt[2]))

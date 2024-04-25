@@ -1,4 +1,5 @@
 import argparse
+from config import config
 
 
 def parse_args():
@@ -18,44 +19,41 @@ def parse_args():
     )
     parser.add_argument(
         "--model",
-        default="SG161222/Realistic_Vision_V5.1_noVAE",
+        default=config["model"],
         help="Model ID for the base diffusion model",
     )
     parser.add_argument(
         "--motion-adapter",
-        default="ByteDance/AnimateDiff-Lightning",
+        default=config["motion_adapter"],
         help="Model ID for the motion adapter",
     )
     parser.add_argument(
         "--motion-adapter-variant",
-        default="animatediff_lightning_4step_diffusers.safetensors",
+        default=config["motion_adapter_variant"],
         help="Model variant for the motion adapter",
     )
     parser.add_argument(
         "--steps",
         type=int,
-        default=4,
+        default=config["steps"],
         help="Number of steps for the diffusion model",
     )
-    parser.add_argument("--guidance-scale", type=float, default=1.0)
+    parser.add_argument(
+        "--guidance-scale", type=float, default=config["guidance_scale"]
+    )
     parser.add_argument(
         "-s", "--seed", type=int, help="seed for random number generators"
     )
     parser.add_argument(
-        "--skip-motion",
-        action="store_true",
-        help="skip motion inference, use cached results",
+        "--model-ip-adapter",
+        default=config["model_ip_adapter"],
+        help="Model ID for the IP adapter image generator",
     )
     parser.add_argument(
-        "--skip-motion-rendering",
-        action="store_true",
-        help="skip rendering of the motion conditioning frames",
-    )
-    parser.add_argument(
-        "--skip-upscaling", action="store_true", help="skip upscaling of the video"
-    )
-    parser.add_argument(
-        "--cache", action="store_true", help="Cache the results of the motion inference"
+        "--ip-adapter-scale",
+        type=float,
+        default=config["ip_adapter_scale"],
+        help="Scale for the IP adapter",
     )
 
     return parser.parse_args()

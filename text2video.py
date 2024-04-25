@@ -1,49 +1,20 @@
-import torch
-import imageio
-from conditioning import generate_conditioning_frames
-import diffusers
-import warnings
-from priorMDM.infer import main
-import coloredlogs
 import logging
-from args import parse_args
-from diffusion import generate_video, create_pipeline
-import json
-import jsonschema
-from scenario import generate_scenario, validate_scenario
+from priorMDM.infer import main
+from diffusion import create_pipeline, create_pipeline_ip, generate_scene
+from conditioning import generate_conditioning_frames
+import imageio
+from util import dotdict
 
-if __name__ == "__main__":
-    # Disable some warnings
-    warnings.filterwarnings("ignore", category=FutureWarning)
-    warnings.filterwarnings("ignore", category=UserWarning)
+logger = logging.getLogger(__name__)
 
-    # Set up logging
-    coloredlogs.DEFAULT_LOG_FORMAT = (
-        "%(asctime)s %(hostname)s %(name)s %(levelname)s %(message)s"
-    )
-    coloredlogs.install(level="INFO")
-    diffusers.logging.set_verbosity_error()
-    logger = logging.getLogger(__name__)
 
-    # Parse arguments
-    args = parse_args()
-
-    if args.scenario:
-        scenario = json.load(args.scenario)
-    else:
-        scenario = generate_scenario(args.prompt)
-
-    try:
-        validate_scenario(scenario)
-    except jsonschema.exceptions.ValidationError as e:
-        logger.error("Invalid scenario")
-        logger.error(e)
-        exit(1)
-
+def generate_video(
+    args: dotdict, scenario: dict, result_path: str, conditioning_path: str
+):
     pipeline = create_pipeline(args)
-
     video = []
     video_conditioning = []
+    ip_images = []
     for i, scene in enumerate(scenario):
         logger.info(f"Generating scene #{i + 1}")
         prompts = [
@@ -60,15 +31,21 @@ if __name__ == "__main__":
             motion=motion, start=0, stop=motion.shape[2], step=2
         )
 
-        # Generate the video
-        frames = generate_video(pipeline, args, conditioning_frames, scene, lengths)
+        # Generate the scene
+        frames, ip_image = generate_scene(
+            pipeline, args, conditioning_frames, scene, lengths
+        )
 
         # Flat append to frames
         video.extend(frames)
         video_conditioning.extend(conditioning_frames[1])
+        ip_images.append(ip_image)
 
     # Save the video
     logger.info("Saving the video")
-    imageio.mimsave("result.mp4", video, fps=10, codec="libx264")
-    imageio.mimsave("conditioning.mp4", video_conditioning, fps=10, codec="libx264")
+    imageio.mimsave(result_path, video, fps=10, codec="libx264")
+    imageio.mimsave(conditioning_path, video_conditioning, fps=10, codec="libx264")
     logger.info("Successfully generated video")
+
+    # Return ip_images
+    return ip_images

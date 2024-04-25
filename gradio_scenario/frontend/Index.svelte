@@ -11,6 +11,7 @@
   import type { LoadingStatus } from "@gradio/statustracker";
   import { BaseButton } from "@gradio/button";
   import BaseTextbox from "./Textbox.svelte";
+  import Slider from "@gradio/slider";
 
   /* https://www.svgrepo.com/svg/439744/drag-horizontal */
 
@@ -49,7 +50,6 @@
           ...scene.actions.map((action) => action.id)
         );
       }, 0) + 1;
-    console.log("id", id);
   }
 
   function handle_change(): void {
@@ -68,14 +68,28 @@
   }
 
   async function handle_copy(): Promise<void> {
-    if ("clipboard" in navigator) {
-      await navigator.clipboard.writeText(JSON.stringify(value, null, 2));
-      copy_feedback();
-    }
+    // Strip id fields from value
+    const value_copy = JSON.parse(JSON.stringify(value));
+    value_copy.forEach((scene) => {
+      delete scene.id;
+      scene.actions.forEach((action) => {
+        delete action.id;
+      });
+    });
+    const json = JSON.stringify(value_copy, null, 2);
+    // Download
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "scenario.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    copy_feedback();
   }
 
   function handleConsider(e, sceneIndex = undefined) {
-    console.log("e", e);
     const {
       items: newItems,
       info: { source, trigger },
@@ -119,7 +133,6 @@
   let dragDisabled = true;
 
   $: value, handle_change();
-  $: console.log("value", value);
 </script>
 
 <Block
@@ -280,15 +293,25 @@
                   </div>
                 </div>
               </div>
+              <div class="slider">
+                <Slider
+                  {gradio}
+                  {interactive}
+                  minimum={2}
+                  maximum={10}
+                  bind:value={value[i].actions[j].length}
+                  on:input={handle_change}
+                  container={false}
+                  label="Length (seconds) *"
+                />
+              </div>
               <BaseTextbox
-                type="number"
-                max_lines={1}
-                label="Length"
-                bind:value={value[i].actions[j].length}
+                type="text"
+                label="Scene description *"
+                bind:value={value[i].actions[j].scene_description}
                 {placeholder}
                 on:input={handle_change}
                 disabled={!interactive}
-                dir={rtl ? "rtl" : "ltr"}
               />
               <BaseTextbox
                 type="text"
@@ -297,16 +320,6 @@
                 {placeholder}
                 on:input={handle_change}
                 disabled={!interactive}
-                dir={rtl ? "rtl" : "ltr"}
-              />
-              <BaseTextbox
-                type="text"
-                label="Scene description"
-                bind:value={value[i].actions[j].scene_description}
-                {placeholder}
-                on:input={handle_change}
-                disabled={!interactive}
-                dir={rtl ? "rtl" : "ltr"}
               />
               <hr class="hr-action" />
             </div>
@@ -316,7 +329,7 @@
               value[i].actions = [
                 ...value[i].actions,
                 {
-                  length: null,
+                  length: 2,
                   motion_description: "",
                   scene_description: "",
                   id: id++,
@@ -339,7 +352,6 @@
             id: id++,
           },
         ];
-        console.log(value);
       }}>New scene</BaseButton
     >
   </div>
@@ -420,13 +432,14 @@
     width: 2em;
   }
 
-  .scene {
-    background: white;
-  }
-
   .scene-actions {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+  }
+
+  .slider {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
   }
 </style>

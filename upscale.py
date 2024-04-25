@@ -9,31 +9,12 @@ import sys
 import torchvision.transforms.functional as functional
 
 sys.modules["torchvision.transforms.functional_tensor"] = functional
-from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.archs.srvgg_arch import SRVGGNetCompact
 from realesrgan import RealESRGANer
 from tqdm import tqdm
 from util import cv2_to_pil, pil_to_cv2
-from PIL import Image
 import logging
 import cv2
-
-# model = RRDBNet(
-#     num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4
-# )
-# netscale = 4
-# model_path = "models/RealESRGAN_x4plus.pth"
-
-# upsampler = RealESRGANer(
-#     scale=netscale,
-#     model_path=model_path,
-#     dni_weight=None,
-#     model=model,
-#     tile=0,
-#     tile_pad=10,
-#     pre_pad=0,
-#     half=True,
-# )
 
 model = SRVGGNetCompact(
     num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=16, upscale=4, act_type="prelu"

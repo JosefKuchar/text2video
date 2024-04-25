@@ -6,9 +6,10 @@ from controlnet import ControlNetModel
 from upscale import upscale
 from safetensors.torch import load_file
 from huggingface_hub import hf_hub_download
-from diffusers.utils import load_image
 from embed_manager import EmbedManager
 from tqdm import tqdm
+from util import dotdict
+import PIL
 import logging
 import torch
 import math
@@ -39,6 +40,9 @@ def get_chunk_windows(n: int, window_size: int, overlap: int):
 def generate_freenoise_latents(n: int, generator: torch.Generator):
     """
     Generate latents acording to the FreeNoise paper
+
+    :param n: number of frames
+    :param generator: random generator
     :return: latents
     """
 
@@ -70,6 +74,13 @@ def generate_freenoise_latents(n: int, generator: torch.Generator):
 
 
 def create_pipeline(args):
+    """
+    Create AnimateDiff ControlNet pipeline
+
+    :param args: Arguments
+    :return: AnimateDiff ControlNet pipeline
+    """
+
     logger.info("Loading AnimateDiff motion adapter")
     adapter = MotionAdapter().to("cuda", torch.float16)
     adapter.load_state_dict(
@@ -147,43 +158,67 @@ def create_pipeline(args):
 
     return pipe
 
+
 def create_pipeline_ip(args):
+    """
+    Create pipeline for IP adapter image generator
+
+    :param args: Arguments
+    :return: IP adapter image generator pipeline
+    """
+
     pipe = StableDiffusionPipeline.from_pretrained(
         args.model_ip_adapter, torch_dtype=torch.float16
     ).to("cuda")
     return pipe
 
-def generate_scene(pipe, args, conditioning_frames, scenario, lengths):
-    logger.info("Generating IP image")
-    ip_pipe = create_pipeline_ip(args)
-    ip_image = ip_pipe(scenario["character_description"]).images[0]
-    # Save ip image for debug
-    # TODO: Remove this
-    ip_image.save("ip.jpg")
-    # Delete pipeline for memory
-    del ip_pipe
 
-    embed_manager = EmbedManager(
-        lengths[-1],
-        scenario["character_description"],
-        pipe.tokenizer,
-        pipe.text_encoder,
-    )
-    prompts = [
-        (scene["scene_description"], scene["motion_description"], length // 2)
-        for scene, length in zip(scenario["actions"], lengths)
-    ]
-    embed_manager.precompute_embeds(prompts)
+def generate_scene(
+    pipe: DiffusionPipeline,
+    args: dotdict,
+    conditioning_frames: list[PIL.Image],
+    scenario: dict,
+    lengths: list[int],
+) -> tuple[list[PIL.Image], PIL.Image]:
+    """
+    Generate single scene
+    :param pipe: AnimateDiff Controlnet pipeline
+    :param args: Arguments
+    :param conditioning_frames: List of conditioning frames
+    :param scenario: Scenario
+    :param lengths: Lengths of the actions
+    :return: Tuple of video and IP image
+    """
 
-    n = len(conditioning_frames[1])
-    embeds = embed_manager.get_embed_window(0, n)
-    negative_embeds = embed_manager.get_negative_embeds()
-
-    logger.info("Generating video")
     with torch.no_grad():
         generator = torch.Generator(device="cuda")
         if args.seed:
             generator = generator.manual_seed(args.seed)
+
+        logger.info("Generating IP image")
+        ip_pipe = create_pipeline_ip(args)
+        ip_image = ip_pipe(
+            scenario["character_description"], generator=generator
+        ).images[0]
+        del ip_pipe
+
+        embed_manager = EmbedManager(
+            lengths[-1],
+            scenario["character_description"],
+            pipe.tokenizer,
+            pipe.text_encoder,
+        )
+        prompts = [
+            (scene["scene_description"], scene["motion_description"], length // 2)
+            for scene, length in zip(scenario["actions"], lengths)
+        ]
+        embed_manager.precompute_embeds(prompts)
+
+        n = len(conditioning_frames[1])
+        embeds = embed_manager.get_embed_window(0, n)
+        negative_embeds = embed_manager.get_negative_embeds()
+
+        logger.info("Generating video")
 
         # Generate latents
         latents = generate_freenoise_latents(n, generator)

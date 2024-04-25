@@ -2,7 +2,7 @@ import gradio as gr
 import tempfile
 from text2video import generate_video
 import logging
-from scenario import generate_scenario, validate_scenario
+from scenario import generate_scenario, validate_scenario, validate_schema
 from gradio_scenario import Scenario
 import json
 import diffusers
@@ -11,11 +11,7 @@ import warnings
 from util import dotdict
 from config import config
 
-
-# TODO: Validate scenario
-
 callback = gr.CSVLogger()
-
 
 def flag_handler(*args):
     print(args)
@@ -30,9 +26,13 @@ def upload_scenario(file: str) -> dict:
     :return: Scenario
     """
 
-    with open(file, "r") as f:
-        scenario = json.load(f)
-    return scenario
+    try:
+        with open(file, "r") as f:
+            scenario = json.load(f)
+        return validate_schema(scenario)
+    except Exception as e:
+        logger.error(e)
+        raise gr.Error(str(e))
 
 
 def text2scenario(input: str) -> dict:
@@ -42,9 +42,13 @@ def text2scenario(input: str) -> dict:
     :param input: Input text
     :return: Scenario
     """
-
-    scenario = generate_scenario(input)
-    return scenario
+    try:
+        scenario = generate_scenario(input)
+        validate_schema(scenario)
+        return scenario
+    except Exception as e:
+        logger.error(e)
+        raise gr.Error(str(e))
 
 
 def scenario2video(
@@ -83,20 +87,25 @@ def scenario2video(
         }
     )
     try:
+        # Validate scenario
+        validate_scenario(scenario)
+
         # Create temporary files
         _, result_file = tempfile.mkstemp(suffix=".mp4")
         _, conditioning_file = tempfile.mkstemp(suffix=".mp4")
 
         # Generate video
         ip_images = generate_video(args, scenario, result_file, conditioning_file)
-        ip_images = [(ip_images, f"Scene character #{i + 1}") for i, ip_images in enumerate(ip_images)]
+        ip_images = [
+            (ip_images, f"Scene character #{i + 1}")
+            for i, ip_images in enumerate(ip_images)
+        ]
 
         # Return file paths and IP images
         return conditioning_file, result_file, ip_images
     except Exception as e:
-        logger.error(f"Error: {e}")
-        gr.Error(f"Error: {e}")
-        return None, None
+        logger.error(e)
+        raise gr.Error(str(e))
 
 
 # Build the UI
@@ -148,7 +157,13 @@ with gr.Blocks() as interface:
                 label="Conditioning video", interactive=False
             )
             final_video = gr.PlayableVideo(label="Final animation", interactive=False)
-            ip_gallery = gr.Gallery(label="Scene characters", columns=[3], rows=[1], object_fit="contain", height="auto")
+            ip_gallery = gr.Gallery(
+                label="Scene characters",
+                columns=[3],
+                rows=[1],
+                object_fit="contain",
+                height="auto",
+            )
             btn = gr.Button("Flag")
 
     # Define actions
@@ -215,4 +230,4 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     # Launch web UI
-    interface.launch(share=True)
+    interface.launch(share=True, show_error=True)

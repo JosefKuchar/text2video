@@ -1,5 +1,5 @@
 """
-
+TODO: Description
 """
 
 from llama_cpp import Llama
@@ -37,15 +37,64 @@ schema = {
 }
 
 
-def validate_scenario(scenario: dict):
+class ScenarioValidationError(Exception):
+    """
+    Raised when scenario validation fails
+    """
+
+    pass
+
+
+def validate_schema(scenario: dict):
     """
     Validate scenario against schema
+    Raises ScenarioValidationError if validation fails
 
     :param scenario: Scenario to validate
     """
 
     # Validate scenario against schema
-    jsonschema.validate(scenario, schema)
+    try:
+        jsonschema.validate(scenario, schema)
+    except jsonschema.ValidationError as e:
+        raise ScenarioValidationError(str(e))
+
+def validate_scenario(scenario: dict):
+    """
+    Validate scenario against schema and custom rules
+    Raises ScenarioValidationError if validation fails
+
+    :param scenario: Scenario to validate
+    """
+
+    # Validate schema
+    validate_schema(scenario)
+
+    # Custom rules
+    if len(scenario) == 0:
+        raise ScenarioValidationError("Scenario must have at least one scene")
+
+    # Check each scene
+    for i, scene in enumerate(scenario):
+        is_character_scene = scene["character_description"].strip() != ""
+        if len(scene["actions"]) == 0:
+            raise ScenarioValidationError(
+                f"Scene #{i + 1} must have at least one action"
+            )
+        # Check each action
+        for j, action in enumerate(scene["actions"]):
+            if action["length"] <= 0:
+                raise ScenarioValidationError(
+                    f"Action #{j + 1} in scene #{i + 1} must have a positive length"
+                )
+            if len(action["scene_description"]) == 0:
+                raise ScenarioValidationError(
+                    f"Action #{j + 1} in scene #{i + 1} must have a scene description"
+                )
+            if is_character_scene and len(action["motion_description"]) == 0:
+                raise ScenarioValidationError(
+                    f"Action #{j + 1} in scene #{i + 1} must have a motion description"
+                )
 
 
 def generate_scenario(prompt: str):

@@ -13,6 +13,7 @@ import PIL
 import logging
 import torch
 import math
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,13 @@ def generate_freenoise_latents(n: int, generator: torch.Generator):
 
     # Generate completely random latents
     latents = torch.randn(
-        [1, 4, n_rounded, 64, 114],
+        [
+            1,
+            4,
+            n_rounded,
+            config["diffusion_resolution"][1] / 8,
+            config["diffusion_resolution"][0] / 8,
+        ],
         device="cuda",
         dtype=torch.float16,
         generator=generator,
@@ -241,8 +248,8 @@ def generate_scene(
                         prompt_embeds=embeds[r],
                         ip_adapter_image=[ip_image],
                         negative_prompt_embeds=negative_embeds[r],
-                        width=912,
-                        height=512,
+                        width=config["diffusion_resolution"][0],
+                        height=config["diffusion_resolution"][1],
                         guidance_scale=args.guidance_scale,
                         conditioning_frames=[[conditioning_frames[1][i] for i in r]],
                         num_inference_steps=args.steps,

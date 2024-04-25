@@ -7,4 +7,8 @@ config = {
     "steps": 8,  # Number of steps for the diffusion model
     "model_ip_adapter": "nitrosocke/classic-anim-diffusion",  # Model ID for the IP adapter image generator
     "ip_adapter_scale": 0.7,  # Scale for the IP adapter
+    "mdm_fps": 20,  # Motion diffusion model FPS
+    "video_fps": 10,  # Video FPS
+    "diffusion_resolution": (512, 912),  # Resolution of the diffusion model
+    "final_resolution": (1920, 1088),  # Final resolution of the video
 }

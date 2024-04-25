@@ -14,6 +14,7 @@ from realesrgan import RealESRGANer
 from tqdm import tqdm
 from util import cv2_to_pil, pil_to_cv2
 import logging
+import config
 import cv2
 
 model = SRVGGNetCompact(
@@ -48,7 +49,7 @@ def upscale(frames):
     for frame in tqdm(frames):
         frame = pil_to_cv2(frame)
         output, _ = upsampler.enhance(frame, outscale=4)
-        output = cv2.resize(output, (1920, 1088))
+        output = cv2.resize(output, config["final_resolution"])
         output = cv2_to_pil(output)
         upscaled_frames.append(output)
     return upscaled_frames

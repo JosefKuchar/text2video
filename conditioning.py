@@ -9,6 +9,7 @@ from pyvirtualdisplay import Display
 from tqdm import tqdm
 import util
 import logging
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def generate_conditioning_frames(motion, start=0, stop=500, step=2):
     mlab.options.offscreen = True
 
     # Create mayavi figure
-    figure = mlab.figure(size=(912, 512), bgcolor=(0, 0, 0))
+    figure = mlab.figure(size=config["diffusion_resolution"], bgcolor=(0, 0, 0))
     mlab.clf()
 
     # Expand motion array for head and eye joints

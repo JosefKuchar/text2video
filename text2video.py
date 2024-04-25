@@ -1,7 +1,8 @@
 import logging
 from priorMDM.infer import main
-from diffusion import create_pipeline, create_pipeline_ip, generate_scene
+from diffusion import create_pipeline, generate_scene
 from conditioning import generate_conditioning_frames
+import config
 import imageio
 from util import dotdict
 
@@ -18,7 +19,7 @@ def generate_video(
     for i, scene in enumerate(scenario):
         logger.info(f"Generating scene #{i + 1}")
         prompts = [
-            (action["motion_description"], action["length"] * 20)
+            (action["motion_description"], action["length"] * config["mdm_fps"])
             for action in scene["actions"]
         ]
 
@@ -28,7 +29,7 @@ def generate_video(
 
         # Generate conditioning frames
         conditioning_frames = generate_conditioning_frames(
-            motion=motion, start=0, stop=motion.shape[2], step=2
+            motion=motion, start=0, stop=motion.shape[2], step=(config["mdm_fps"] // config["video_fps"])
         )
 
         # Generate the scene
@@ -43,8 +44,10 @@ def generate_video(
 
     # Save the video
     logger.info("Saving the video")
-    imageio.mimsave(result_path, video, fps=10, codec="libx264")
-    imageio.mimsave(conditioning_path, video_conditioning, fps=10, codec="libx264")
+    imageio.mimsave(result_path, video, fps=config["video_fps"], codec="libx264")
+    imageio.mimsave(
+        conditioning_path, video_conditioning, fps=config["video_fps"], codec="libx264"
+    )
     logger.info("Successfully generated video")
 
     # Return ip_images

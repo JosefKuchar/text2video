@@ -55,5 +55,8 @@ def parse_args():
         default=config["ip_adapter_scale"],
         help="Scale for the IP adapter",
     )
+    parser.add_argument(
+        "--path", help="Path to save the generated video and other files", required=True
+    )
 
     return parser.parse_args()

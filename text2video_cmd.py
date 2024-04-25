@@ -6,7 +6,51 @@ from args import parse_args
 from text2video import generate_video
 import json
 import jsonschema
-from scenario import generate_scenario, validate_scenario
+from scenario import generate_scenario, validate_scenario, ScenarioValidationError
+import os
+
+
+def text2scenario(args):
+    # Generate scenario
+    scenario = generate_scenario(args.prompt)
+
+    # Validate scenario
+    try:
+        validate_scenario(scenario)
+    except ScenarioValidationError as e:
+        logger.error("Generated scenario is invalid, try again")
+        exit(1)
+
+    # Save scenario to file
+    with open(args.path, "w") as f:
+        json.dump(scenario, f, indent=4)
+
+
+def scenario2video(args):
+    # Load scenario
+    scenario = json.load(args.scenario)
+
+    # Validate scenario
+    try:
+        validate_scenario(scenario)
+    except ScenarioValidationError as e:
+        logger.error("Invalid scenario")
+        logger.error(e)
+        exit(1)
+
+    # Setup paths
+    os.makedirs(args.path, exist_ok=True)
+    final_path = os.path.join(args.path, "video.mp4")
+    conditioning_path = os.path.join(args.path, "conditioning.mp4")
+
+    # Generate video
+    ip_images = generate_video(args, scenario, final_path, conditioning_path)
+
+    # Save ip images
+    if args.save_ip_images:
+        for i, ip_image in enumerate(ip_images):
+            ip_image.save(os.path.join(args.path, f"ip_image_{i}.png"))
+
 
 if __name__ == "__main__":
     # Disable some warnings
@@ -25,15 +69,6 @@ if __name__ == "__main__":
     args = parse_args()
 
     if args.scenario:
-        scenario = json.load(args.scenario)
+        scenario2video(args)
     else:
-        scenario = generate_scenario(args.prompt)
-
-    try:
-        validate_scenario(scenario)
-    except jsonschema.exceptions.ValidationError as e:
-        logger.error("Invalid scenario")
-        logger.error(e)
-        exit(1)
-
-    generate_video(args, scenario, "result.mp4", "conditioning.mp4")
+        text2scenario(args)

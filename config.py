@@ -11,4 +11,5 @@ config = {
     "video_fps": 10,  # Video FPS
     "diffusion_resolution": (912, 512),  # Resolution of the diffusion model
     "final_resolution": (1920, 1088),  # Final resolution of the video
+    "demo_max_length": 120,  # Maximum length of the video in demo mode (seconds)
 }

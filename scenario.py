@@ -5,6 +5,7 @@ TODO: Description
 from llama_cpp import Llama
 import logging
 from yaspin import yaspin
+from config import config
 import jsonschema
 import json
 
@@ -63,7 +64,7 @@ def validate_schema(scenario: dict):
         raise ScenarioValidationError(str(e))
 
 
-def validate_scenario(scenario: dict):
+def validate_scenario(scenario: dict, demo=False):
     """
     Validate scenario against schema and custom rules
     Raises ScenarioValidationError if validation fails
@@ -79,6 +80,7 @@ def validate_scenario(scenario: dict):
         raise ScenarioValidationError("Scenario must have at least one scene")
 
     # Check each scene
+    total_length = 0
     for i, scene in enumerate(scenario):
         is_character_scene = scene["character_description"].strip() != ""
         if len(scene["actions"]) == 0:
@@ -87,6 +89,7 @@ def validate_scenario(scenario: dict):
             )
         # Check each action
         for j, action in enumerate(scene["actions"]):
+            total_length += action["length"]
             if action["length"] <= 0:
                 raise ScenarioValidationError(
                     f"Action #{j + 1} in scene #{i + 1} must have a positive length"
@@ -99,6 +102,11 @@ def validate_scenario(scenario: dict):
                 raise ScenarioValidationError(
                     f"Action #{j + 1} in scene #{i + 1} must have a motion description"
                 )
+    # If in demo mode, check total length
+    if demo and total_length > config["demo_max_length"]:
+        raise ScenarioValidationError(
+            f"Total length of the scenario must be less than {config['demo_max_length']} seconds"
+        )
 
 
 def generate_scenario(prompt: str):

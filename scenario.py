@@ -163,6 +163,14 @@ Create story about a person in a park, approximately 1 minute long. It is sunny 
         )
 
     # Parse JSON
-    res = json.loads(res["choices"][0]["message"]["content"])
+    try:
+        res = json.loads(res["choices"][0]["message"]["content"])
+    except json.JSONDecodeError as e:
+        raise ScenarioValidationError(str(e))
+
+    # Clamp length of each action to 10 seconds
+    for scene in res:
+        for action in scene["actions"]:
+            action["length"] = min(action["length"], 10)
 
     return res

@@ -11,11 +11,11 @@ import os
 
 
 def text2scenario(args):
-    # Generate scenario
-    scenario = generate_scenario(args.prompt)
-
-    # Validate scenario
     try:
+        # Generate scenario
+        scenario = generate_scenario(args.prompt)
+
+        # Validate scenario
         validate_scenario(scenario)
     except ScenarioValidationError as e:
         logger.error("Generated scenario is invalid, try again")

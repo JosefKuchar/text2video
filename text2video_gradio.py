@@ -16,11 +16,6 @@ callback = gr.CSVLogger()
 demo = False
 
 
-def flag_handler(*args):
-    print(args)
-    print(callback.flag(args))
-
-
 def upload_scenario(file: str) -> dict:
     """
     Upload scenario from file
@@ -32,7 +27,8 @@ def upload_scenario(file: str) -> dict:
     try:
         with open(file, "r") as f:
             scenario = json.load(f)
-        return validate_schema(scenario)
+        validate_schema(scenario)
+        return scenario
     except Exception as e:
         logger.error(e)
         raise gr.Error(str(e))
@@ -233,8 +229,8 @@ if __name__ == "__main__":
             "flagged",
         )
         btn.click(
-            flag_handler,
-            inputs=[
+            lambda *args: callback.flag(args),
+            [
                 input_text,
                 scenario,
                 cfg,
@@ -247,6 +243,8 @@ if __name__ == "__main__":
                 controlnet_video,
                 final_video,
             ],
+            None,
+            preprocess=False,
         )
 
     # Launch web UI

@@ -79,9 +79,9 @@ class Scenario(FormComponent):
 
         # Strip id fields
         for scene in payload:
-            del scene['id']
-            for action in scene['actions']:
-                del action['id']
+            del scene["id"]
+            for action in scene["actions"]:
+                del action["id"]
 
         return payload
 
@@ -99,11 +99,11 @@ class Scenario(FormComponent):
         # Add id fields
         id = 0
         for scene in value:
-            scene['id'] = id
+            scene["id"] = id
             id += 1
             action_id = 0
-            for action in scene['actions']:
-                action['id'] = action_id
+            for action in scene["actions"]:
+                action["id"] = action_id
                 action_id += 1
 
         return value

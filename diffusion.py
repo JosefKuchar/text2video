@@ -209,8 +209,9 @@ def generate_scene(
             logger.info("Generating IP image")
             pipe.set_ip_adapter_scale([args.ip_adapter_scale])
             ip_pipe = create_pipeline_ip(args)
+            # TODO make prefix configurable
             ip_image = ip_pipe(
-                scenario["character_description"], generator=generator
+                f"classic disney style {scenario['character_description']}", generator=generator
             ).images[0]
             del ip_pipe
         else:

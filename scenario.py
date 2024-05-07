@@ -82,6 +82,7 @@ def validate_scenario(scenario: dict, demo=False):
     # Check each scene
     total_length = 0
     for i, scene in enumerate(scenario):
+        scene_length = 0
         is_character_scene = scene["character_description"].strip() != ""
         if len(scene["actions"]) == 0:
             raise ScenarioValidationError(
@@ -90,6 +91,7 @@ def validate_scenario(scenario: dict, demo=False):
         # Check each action
         for j, action in enumerate(scene["actions"]):
             total_length += action["length"]
+            scene_length += action["length"]
             if action["length"] <= 0:
                 raise ScenarioValidationError(
                     f"Action #{j + 1} in scene #{i + 1} must have a positive length"
@@ -102,6 +104,12 @@ def validate_scenario(scenario: dict, demo=False):
                 raise ScenarioValidationError(
                     f"Action #{j + 1} in scene #{i + 1} must have a motion description"
                 )
+
+        # Check total length of scene
+        if scene_length > config["max_scene_length"]:
+            raise ScenarioValidationError(
+                f"Total length of scene #{i + 1} must be less than {config['max_scene_length']} seconds"
+            )
     # If in demo mode, check total length
     if demo and total_length > config["demo_max_length"]:
         raise ScenarioValidationError(
@@ -119,9 +127,9 @@ def generate_scenario(prompt: str):
     logger.info("Loading large language model")
 
     llm = Llama.from_pretrained(
-        repo_id="TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
-        filename="mistral-7b-instruct-v0.2.Q4_K_M.gguf",
-        n_gpu_layers=-1,
+        repo_id="QuantFactory/Meta-Llama-3-8B-GGUF",
+        filename="Meta-Llama-3-8B.Q6_K.gguf",
+        # n_gpu_layers=-1,
         n_ctx=4096,
         n_batch=4096,
         verbose=False,
@@ -145,13 +153,14 @@ Root object is an array of scenes
 'length' is the duration of the action in seconds
 'motion_description' is a description of the motion in the action
 'scene_description' is a visual description of the action
-Keep all descriptions very short, eg. motion description can be just "walking"
+
+Keep all descriptions very short, eg. motion description can be just "walking"!
 
 Create story about a person in a park, approximately 1 minute long. It is sunny and the person is wearing a red shirt.""",
                 },
                 {
                     "role": "assistant",
-                    "content": """[{"character_description":"A person with short black hair, wearing a bright red shirt and jeans, is in a sunny park.","actions":[{"length":10,"motion_description":"walking","scene_description":"Tall green trees line the path, flowers bloom colorfully on either side."},{"length":20,"motion_description":"sitting","scene_description":"An old wooden bench under a large oak tree, leaves casting dappled shadows on the ground."},{"length":15,"motion_description":"feeding ducks","scene_description":"The pond's edge is dotted with reeds and water lilies, ducks gather eagerly."},{"length":15,"motion_description":"watching","scene_description":"A wide grassy area where children chase a brightly colored frisbee under the sun."}]}]""",
+                    "content": """[{"character_description":"A person with short black hair, wearing a bright red shirt and jeans, is in a sunny park.","actions":[{"length":10,"motion_description":"walking","scene_description":"Tall green trees line the path, flowers bloom colorfully on either side."},{"length":6,"motion_description":"sitting","scene_description":"An old wooden bench under a large oak tree, leaves casting dappled shadows on the ground."},{"length":8,"motion_description":"feeding ducks","scene_description":"The pond's edge is dotted with reeds and water lilies, ducks gather eagerly."},{"length":6,"motion_description":"watching","scene_description":"A wide grassy area where children chase a brightly colored frisbee under the sun."}]}]""",
                 },
                 {"role": "user", "content": prompt},
             ],

@@ -1,8 +1,6 @@
-from diffusers import AutoencoderKL
-from unet_motion_model import MotionAdapter
+from diffusers import AutoencoderKL, MotionAdapter, ControlNetModel
 from diffusers.pipelines import DiffusionPipeline, StableDiffusionPipeline
 from diffusers.schedulers import DPMSolverMultistepScheduler
-from controlnet import ControlNetModel
 from upscale import upscale
 from safetensors.torch import load_file
 from huggingface_hub import hf_hub_download
@@ -120,7 +118,7 @@ def create_pipeline(args):
         motion_adapter=adapter,
         controlnet=controlnet,
         vae=vae,
-        custom_pipeline="./pipeline.py",
+        custom_pipeline="./diffusers/examples/community/pipeline_animatediff_controlnet.py",
     ).to(device="cuda", dtype=torch.float16)
 
     logger.info("Setting up scheduler")

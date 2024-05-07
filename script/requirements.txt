@@ -232,3 +232,4 @@ yarl==1.9.4
 zipp==3.18.1
 compel==2.0.2
 yaspin==3.0.1
+llama_cpp_python==0.2.65

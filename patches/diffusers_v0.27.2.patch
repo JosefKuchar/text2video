@@ -1,0 +1,2666 @@
+diff --git a/examples/community/pipeline_animatediff_controlnet.py b/examples/community/pipeline_animatediff_controlnet.py
+index 77947730..6feeeaed 100644
+--- a/examples/community/pipeline_animatediff_controlnet.py
++++ b/examples/community/pipeline_animatediff_controlnet.py
+@@ -90,29 +90,6 @@ EXAMPLE_DOC_STRING = """
+         ```
+ """
+ 
+-
+-# Copied from diffusers.pipelines.animatediff.pipeline_animatediff.tensor2vid
+-def tensor2vid(video: torch.Tensor, processor, output_type="np"):
+-    batch_size, channels, num_frames, height, width = video.shape
+-    outputs = []
+-    for batch_idx in range(batch_size):
+-        batch_vid = video[batch_idx].permute(1, 0, 2, 3)
+-        batch_output = processor.postprocess(batch_vid, output_type)
+-
+-        outputs.append(batch_output)
+-
+-    if output_type == "np":
+-        outputs = np.stack(outputs)
+-
+-    elif output_type == "pt":
+-        outputs = torch.stack(outputs)
+-
+-    elif not output_type == "pil":
+-        raise ValueError(f"{output_type} does not exist. Please choose one of ['np', 'pt', 'pil']")
+-
+-    return outputs
+-
+-
+ class AnimateDiffControlNetPipeline(
+     DiffusionPipeline, StableDiffusionMixin, TextualInversionLoaderMixin, IPAdapterMixin, LoraLoaderMixin
+ ):
+@@ -243,12 +220,7 @@ class AnimateDiffControlNetPipeline(
+             else:
+                 scale_lora_layers(self.text_encoder, lora_scale)
+ 
+-        if prompt is not None and isinstance(prompt, str):
+-            batch_size = 1
+-        elif prompt is not None and isinstance(prompt, list):
+-            batch_size = len(prompt)
+-        else:
+-            batch_size = prompt_embeds.shape[0]
++        batch_size = 1
+ 
+         if prompt_embeds is None:
+             # textual inversion: process multi-vector tokens if necessary
+@@ -373,18 +345,29 @@ class AnimateDiffControlNetPipeline(
+         return prompt_embeds, negative_prompt_embeds
+ 
+     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.encode_image
+-    def encode_image(self, image, device, num_images_per_prompt):
++    def encode_image(self, image, device, num_images_per_prompt, output_hidden_states=None):
+         dtype = next(self.image_encoder.parameters()).dtype
+ 
+         if not isinstance(image, torch.Tensor):
+             image = self.feature_extractor(image, return_tensors="pt").pixel_values
+ 
+         image = image.to(device=device, dtype=dtype)
+-        image_embeds = self.image_encoder(image).image_embeds
+-        image_embeds = image_embeds.repeat_interleave(num_images_per_prompt, dim=0)
++        if output_hidden_states:
++            image_enc_hidden_states = self.image_encoder(image, output_hidden_states=True).hidden_states[-2]
++            image_enc_hidden_states = image_enc_hidden_states.repeat_interleave(num_images_per_prompt, dim=0)
++            uncond_image_enc_hidden_states = self.image_encoder(
++                torch.zeros_like(image), output_hidden_states=True
++            ).hidden_states[-2]
++            uncond_image_enc_hidden_states = uncond_image_enc_hidden_states.repeat_interleave(
++                num_images_per_prompt, dim=0
++            )
++            return image_enc_hidden_states, uncond_image_enc_hidden_states
++        else:
++            image_embeds = self.image_encoder(image).image_embeds
++            image_embeds = image_embeds.repeat_interleave(num_images_per_prompt, dim=0)
++            uncond_image_embeds = torch.zeros_like(image_embeds)
+ 
+-        uncond_image_embeds = torch.zeros_like(image_embeds)
+-        return image_embeds, uncond_image_embeds
++            return image_embeds, uncond_image_embeds
+ 
+     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_ip_adapter_image_embeds
+     def prepare_ip_adapter_image_embeds(
+@@ -728,6 +711,27 @@ class AnimateDiffControlNetPipeline(
+     def num_timesteps(self):
+         return self._num_timesteps
+ 
++    # Copied from diffusers.pipelines.animatediff.pipeline_animatediff.tensor2vid
++    def tensor2vid(self, video: torch.Tensor, output_type="np"):
++        batch_size, channels, num_frames, height, width = video.shape
++        outputs = []
++        for batch_idx in range(batch_size):
++            batch_vid = video[batch_idx].permute(1, 0, 2, 3)
++            batch_output = self.image_processor.postprocess(batch_vid, output_type)
++
++            outputs.append(batch_output)
++
++        if output_type == "np":
++            outputs = np.stack(outputs)
++
++        elif output_type == "pt":
++            outputs = torch.stack(outputs)
++
++        elif not output_type == "pil":
++            raise ValueError(f"{output_type} does not exist. Please choose one of ['np', 'pt', 'pil']")
++
++        return outputs
++
+     @torch.no_grad()
+     def __call__(
+         self,
+@@ -736,6 +740,8 @@ class AnimateDiffControlNetPipeline(
+         height: Optional[int] = None,
+         width: Optional[int] = None,
+         num_inference_steps: int = 50,
++        steps_offset=0,
++        do_inference_steps=1,
+         guidance_scale: float = 7.5,
+         negative_prompt: Optional[Union[str, List[str]]] = None,
+         num_videos_per_prompt: Optional[int] = 1,
+@@ -757,6 +763,7 @@ class AnimateDiffControlNetPipeline(
+         clip_skip: Optional[int] = None,
+         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
+         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
++        camera_motions=None,
+         **kwargs,
+     ):
+         r"""
+@@ -908,12 +915,7 @@ class AnimateDiffControlNetPipeline(
+         self._cross_attention_kwargs = cross_attention_kwargs
+ 
+         # 2. Define call parameters
+-        if prompt is not None and isinstance(prompt, str):
+-            batch_size = 1
+-        elif prompt is not None and isinstance(prompt, list):
+-            batch_size = len(prompt)
+-        else:
+-            batch_size = prompt_embeds.shape[0]
++        batch_size = 1
+ 
+         device = self._execution_device
+ 
+@@ -1024,86 +1026,87 @@ class AnimateDiffControlNetPipeline(
+ 
+         # 8. Denoising loop
+         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
+-        with self.progress_bar(total=num_inference_steps) as progress_bar:
+-            for i, t in enumerate(timesteps):
+-                # expand the latents if we are doing classifier free guidance
+-                latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
+-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+-
+-                if guess_mode and self.do_classifier_free_guidance:
+-                    # Infer ControlNet only for the conditional batch.
+-                    control_model_input = latents
+-                    control_model_input = self.scheduler.scale_model_input(control_model_input, t)
+-                    controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
+-                else:
+-                    control_model_input = latent_model_input
+-                    controlnet_prompt_embeds = prompt_embeds
+-                controlnet_prompt_embeds = controlnet_prompt_embeds.repeat_interleave(num_frames, dim=0)
+-
+-                if isinstance(controlnet_keep[i], list):
+-                    cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
+-                else:
+-                    controlnet_cond_scale = controlnet_conditioning_scale
+-                    if isinstance(controlnet_cond_scale, list):
+-                        controlnet_cond_scale = controlnet_cond_scale[0]
+-                    cond_scale = controlnet_cond_scale * controlnet_keep[i]
+-
+-                control_model_input = torch.transpose(control_model_input, 1, 2)
+-                control_model_input = control_model_input.reshape(
+-                    (-1, control_model_input.shape[2], control_model_input.shape[3], control_model_input.shape[4])
+-                )
+-
+-                down_block_res_samples, mid_block_res_sample = self.controlnet(
+-                    control_model_input,
+-                    t,
+-                    encoder_hidden_states=controlnet_prompt_embeds,
+-                    controlnet_cond=conditioning_frames,
+-                    conditioning_scale=cond_scale,
+-                    guess_mode=guess_mode,
+-                    return_dict=False,
+-                )
+-
+-                # predict the noise residual
+-                noise_pred = self.unet(
+-                    latent_model_input,
+-                    t,
+-                    encoder_hidden_states=prompt_embeds,
+-                    cross_attention_kwargs=self.cross_attention_kwargs,
+-                    added_cond_kwargs=added_cond_kwargs,
+-                    down_block_additional_residuals=down_block_res_samples,
+-                    mid_block_additional_residual=mid_block_res_sample,
+-                ).sample
+-
+-                # perform guidance
+-                if self.do_classifier_free_guidance:
+-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+-
+-                # compute the previous noisy sample x_t -> x_t-1
+-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
++        for i, t in enumerate(
++            timesteps[steps_offset : steps_offset + do_inference_steps]
++        ):
++            # expand the latents if we are doing classifier free guidance
++            latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
++            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
++
++            if guess_mode and self.do_classifier_free_guidance:
++                # Infer ControlNet only for the conditional batch.
++                control_model_input = latents
++                control_model_input = self.scheduler.scale_model_input(control_model_input, t)
++                controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
++            else:
++                control_model_input = latent_model_input
++                controlnet_prompt_embeds = prompt_embeds
+ 
+-                if callback_on_step_end is not None:
+-                    callback_kwargs = {}
+-                    for k in callback_on_step_end_tensor_inputs:
+-                        callback_kwargs[k] = locals()[k]
+-                    callback_outputs = callback_on_step_end(self, i, t, callback_kwargs)
++            if isinstance(controlnet_keep[i], list):
++                cond_scale = [c * s for c, s in zip(controlnet_conditioning_scale, controlnet_keep[i])]
++            else:
++                controlnet_cond_scale = controlnet_conditioning_scale
++                if isinstance(controlnet_cond_scale, list):
++                    controlnet_cond_scale = controlnet_cond_scale[0]
++                cond_scale = controlnet_cond_scale * controlnet_keep[i]
++
++            control_model_input = torch.transpose(control_model_input, 1, 2)
++            control_model_input = control_model_input.reshape(
++                (-1, control_model_input.shape[2], control_model_input.shape[3], control_model_input.shape[4])
++            )
+ 
+-                    latents = callback_outputs.pop("latents", latents)
+-                    prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
+-                    negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
++            down_block_res_samples, mid_block_res_sample = self.controlnet(
++                control_model_input,
++                t,
++                encoder_hidden_states=controlnet_prompt_embeds,
++                controlnet_cond=conditioning_frames,
++                conditioning_scale=cond_scale,
++                guess_mode=guess_mode,
++                return_dict=False,
++            )
+ 
+-                # call the callback, if provided
+-                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+-                    progress_bar.update()
+-                    if callback is not None and i % callback_steps == 0:
+-                        callback(i, t, latents)
++            # predict the noise residual
++            noise_pred = self.unet(
++                latent_model_input,
++                t,
++                encoder_hidden_states=prompt_embeds,
++                cross_attention_kwargs=self.cross_attention_kwargs,
++                added_cond_kwargs=added_cond_kwargs,
++                down_block_additional_residuals=down_block_res_samples,
++                mid_block_additional_residual=mid_block_res_sample,
++                set_adapters=self.set_adapters,
++                camera_motions=camera_motions,
++            ).sample
++
++            # perform guidance
++            if self.do_classifier_free_guidance:
++                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
++                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
++
++            # compute the previous noisy sample x_t -> x_t-1
++            latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
++
++            if callback_on_step_end is not None:
++                callback_kwargs = {}
++                for k in callback_on_step_end_tensor_inputs:
++                    callback_kwargs[k] = locals()[k]
++                callback_outputs = callback_on_step_end(self, i, t, callback_kwargs)
++
++                latents = callback_outputs.pop("latents", latents)
++                prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
++                negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
++
++            # call the callback, if provided
++            if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
++                if callback is not None and i % callback_steps == 0:
++                    callback(i, t, latents)
+ 
+         # 9. Post processing
+         if output_type == "latent":
+             video = latents
+         else:
+             video_tensor = self.decode_latents(latents)
+-            video = tensor2vid(video_tensor, self.image_processor, output_type=output_type)
++            video = self.tensor2vid(video_tensor, output_type=output_type)
+ 
+         # 10. Offload all models
+         self.maybe_free_model_hooks()
+diff --git a/src/diffusers/models/attention.py b/src/diffusers/models/attention.py
+index 3d45cfa8..0a4d17e9 100644
+--- a/src/diffusers/models/attention.py
++++ b/src/diffusers/models/attention.py
+@@ -272,7 +272,7 @@ class BasicTransformerBlock(nn.Module):
+             self.scale_shift_table = nn.Parameter(torch.randn(6, dim) / dim**0.5)
+ 
+         # let chunk size default to None
+-        self._chunk_size = None
++        self._chunk_size = 1
+         self._chunk_dim = 0
+ 
+     def set_chunk_feed_forward(self, chunk_size: Optional[int], dim: int = 0):
+@@ -466,8 +466,8 @@ class TemporalBasicTransformerBlock(nn.Module):
+         self.ff = FeedForward(time_mix_inner_dim, activation_fn="geglu")
+ 
+         # let chunk size default to None
+-        self._chunk_size = None
+-        self._chunk_dim = None
++        self._chunk_size = 1
++        self._chunk_dim = 0
+ 
+     def set_chunk_feed_forward(self, chunk_size: Optional[int], **kwargs):
+         # Sets chunk feed-forward
+diff --git a/src/diffusers/models/resnet.py b/src/diffusers/models/resnet.py
+index ec75861e..59c8f426 100644
+--- a/src/diffusers/models/resnet.py
++++ b/src/diffusers/models/resnet.py
+@@ -111,21 +111,29 @@ class ResnetBlockCondNorm2D(nn.Module):
+         elif self.time_embedding_norm == "spatial":
+             self.norm1 = SpatialNorm(in_channels, temb_channels)
+         else:
+-            raise ValueError(f" unsupported time_embedding_norm: {self.time_embedding_norm}")
++            raise ValueError(
++                f" unsupported time_embedding_norm: {self.time_embedding_norm}"
++            )
+ 
+-        self.conv1 = conv_cls(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
++        self.conv1 = conv_cls(
++            in_channels, out_channels, kernel_size=3, stride=1, padding=1
++        )
+ 
+         if self.time_embedding_norm == "ada_group":  # ada_group
+             self.norm2 = AdaGroupNorm(temb_channels, out_channels, groups_out, eps=eps)
+         elif self.time_embedding_norm == "spatial":  # spatial
+             self.norm2 = SpatialNorm(out_channels, temb_channels)
+         else:
+-            raise ValueError(f" unsupported time_embedding_norm: {self.time_embedding_norm}")
++            raise ValueError(
++                f" unsupported time_embedding_norm: {self.time_embedding_norm}"
++            )
+ 
+         self.dropout = torch.nn.Dropout(dropout)
+ 
+         conv_2d_out_channels = conv_2d_out_channels or out_channels
+-        self.conv2 = conv_cls(out_channels, conv_2d_out_channels, kernel_size=3, stride=1, padding=1)
++        self.conv2 = conv_cls(
++            out_channels, conv_2d_out_channels, kernel_size=3, stride=1, padding=1
++        )
+ 
+         self.nonlinearity = get_activation(non_linearity)
+ 
+@@ -133,9 +141,15 @@ class ResnetBlockCondNorm2D(nn.Module):
+         if self.up:
+             self.upsample = Upsample2D(in_channels, use_conv=False)
+         elif self.down:
+-            self.downsample = Downsample2D(in_channels, use_conv=False, padding=1, name="op")
++            self.downsample = Downsample2D(
++                in_channels, use_conv=False, padding=1, name="op"
++            )
+ 
+-        self.use_in_shortcut = self.in_channels != conv_2d_out_channels if use_in_shortcut is None else use_in_shortcut
++        self.use_in_shortcut = (
++            self.in_channels != conv_2d_out_channels
++            if use_in_shortcut is None
++            else use_in_shortcut
++        )
+ 
+         self.conv_shortcut = None
+         if self.use_in_shortcut:
+@@ -148,7 +162,9 @@ class ResnetBlockCondNorm2D(nn.Module):
+                 bias=conv_shortcut_bias,
+             )
+ 
+-    def forward(self, input_tensor: torch.FloatTensor, temb: torch.FloatTensor, *args, **kwargs) -> torch.FloatTensor:
++    def forward(
++        self, input_tensor: torch.FloatTensor, temb: torch.FloatTensor, *args, **kwargs
++    ) -> torch.FloatTensor:
+         if len(args) > 0 or kwargs.get("scale", None) is not None:
+             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
+             deprecate("scale", "1.0.0", deprecation_message)
+@@ -269,9 +285,13 @@ class ResnetBlock2D(nn.Module):
+         if groups_out is None:
+             groups_out = groups
+ 
+-        self.norm1 = torch.nn.GroupNorm(num_groups=groups, num_channels=in_channels, eps=eps, affine=True)
++        self.norm1 = torch.nn.GroupNorm(
++            num_groups=groups, num_channels=in_channels, eps=eps, affine=True
++        )
+ 
+-        self.conv1 = conv_cls(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
++        self.conv1 = conv_cls(
++            in_channels, out_channels, kernel_size=3, stride=1, padding=1
++        )
+ 
+         if temb_channels is not None:
+             if self.time_embedding_norm == "default":
+@@ -279,15 +299,21 @@ class ResnetBlock2D(nn.Module):
+             elif self.time_embedding_norm == "scale_shift":
+                 self.time_emb_proj = linear_cls(temb_channels, 2 * out_channels)
+             else:
+-                raise ValueError(f"unknown time_embedding_norm : {self.time_embedding_norm} ")
++                raise ValueError(
++                    f"unknown time_embedding_norm : {self.time_embedding_norm} "
++                )
+         else:
+             self.time_emb_proj = None
+ 
+-        self.norm2 = torch.nn.GroupNorm(num_groups=groups_out, num_channels=out_channels, eps=eps, affine=True)
++        self.norm2 = torch.nn.GroupNorm(
++            num_groups=groups_out, num_channels=out_channels, eps=eps, affine=True
++        )
+ 
+         self.dropout = torch.nn.Dropout(dropout)
+         conv_2d_out_channels = conv_2d_out_channels or out_channels
+-        self.conv2 = conv_cls(out_channels, conv_2d_out_channels, kernel_size=3, stride=1, padding=1)
++        self.conv2 = conv_cls(
++            out_channels, conv_2d_out_channels, kernel_size=3, stride=1, padding=1
++        )
+ 
+         self.nonlinearity = get_activation(non_linearity)
+ 
+@@ -307,9 +333,15 @@ class ResnetBlock2D(nn.Module):
+             elif kernel == "sde_vp":
+                 self.downsample = partial(F.avg_pool2d, kernel_size=2, stride=2)
+             else:
+-                self.downsample = Downsample2D(in_channels, use_conv=False, padding=1, name="op")
++                self.downsample = Downsample2D(
++                    in_channels, use_conv=False, padding=1, name="op"
++                )
+ 
+-        self.use_in_shortcut = self.in_channels != conv_2d_out_channels if use_in_shortcut is None else use_in_shortcut
++        self.use_in_shortcut = (
++            self.in_channels != conv_2d_out_channels
++            if use_in_shortcut is None
++            else use_in_shortcut
++        )
+ 
+         self.conv_shortcut = None
+         if self.use_in_shortcut:
+@@ -322,7 +354,28 @@ class ResnetBlock2D(nn.Module):
+                 bias=conv_shortcut_bias,
+             )
+ 
+-    def forward(self, input_tensor: torch.FloatTensor, temb: torch.FloatTensor, *args, **kwargs) -> torch.FloatTensor:
++    def forward(
++        self, input_tensor: torch.FloatTensor, temb: torch.FloatTensor, *args, **kwargs
++    ) -> torch.FloatTensor:
++        """
++        Chunked forwarding
++        """
++
++        num_chunks = input_tensor.shape[0]
++        ff_output = torch.cat(
++            [
++                self._forward(input_chunk, temb_chunk, *args, **kwargs)
++                for input_chunk, temb_chunk in zip(
++                    input_tensor.chunk(num_chunks, dim=0), temb.chunk(num_chunks, dim=0) if temb is not None else [None] * num_chunks
++                )
++            ],
++            dim=0,
++        )
++        return ff_output
++
++    def _forward(
++        self, input_tensor: torch.FloatTensor, temb: torch.FloatTensor, *args, **kwargs
++    ) -> torch.FloatTensor:
+         if len(args) > 0 or kwargs.get("scale", None) is not None:
+             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
+             deprecate("scale", "1.0.0", deprecation_message)
+@@ -412,7 +465,9 @@ class Conv1dBlock(nn.Module):
+     ):
+         super().__init__()
+ 
+-        self.conv1d = nn.Conv1d(inp_channels, out_channels, kernel_size, padding=kernel_size // 2)
++        self.conv1d = nn.Conv1d(
++            inp_channels, out_channels, kernel_size, padding=kernel_size // 2
++        )
+         self.group_norm = nn.GroupNorm(n_groups, out_channels)
+         self.mish = get_activation(activation)
+ 
+@@ -454,7 +509,9 @@ class ResidualTemporalBlock1D(nn.Module):
+         self.time_emb = nn.Linear(embed_dim, out_channels)
+ 
+         self.residual_conv = (
+-            nn.Conv1d(inp_channels, out_channels, 1) if inp_channels != out_channels else nn.Identity()
++            nn.Conv1d(inp_channels, out_channels, 1)
++            if inp_channels != out_channels
++            else nn.Identity()
+         )
+ 
+     def forward(self, inputs: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+@@ -527,7 +584,9 @@ class TemporalConvLayer(nn.Module):
+ 
+     def forward(self, hidden_states: torch.Tensor, num_frames: int = 1) -> torch.Tensor:
+         hidden_states = (
+-            hidden_states[None, :].reshape((-1, num_frames) + hidden_states.shape[1:]).permute(0, 2, 1, 3, 4)
++            hidden_states[None, :]
++            .reshape((-1, num_frames) + hidden_states.shape[1:])
++            .permute(0, 2, 1, 3, 4)
+         )
+ 
+         identity = hidden_states
+@@ -539,7 +598,8 @@ class TemporalConvLayer(nn.Module):
+         hidden_states = identity + hidden_states
+ 
+         hidden_states = hidden_states.permute(0, 2, 1, 3, 4).reshape(
+-            (hidden_states.shape[0] * hidden_states.shape[2], -1) + hidden_states.shape[3:]
++            (hidden_states.shape[0] * hidden_states.shape[2], -1)
++            + hidden_states.shape[3:]
+         )
+         return hidden_states
+ 
+@@ -571,7 +631,9 @@ class TemporalResnetBlock(nn.Module):
+         kernel_size = (3, 1, 1)
+         padding = [k // 2 for k in kernel_size]
+ 
+-        self.norm1 = torch.nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=eps, affine=True)
++        self.norm1 = torch.nn.GroupNorm(
++            num_groups=32, num_channels=in_channels, eps=eps, affine=True
++        )
+         self.conv1 = nn.Conv3d(
+             in_channels,
+             out_channels,
+@@ -585,7 +647,9 @@ class TemporalResnetBlock(nn.Module):
+         else:
+             self.time_emb_proj = None
+ 
+-        self.norm2 = torch.nn.GroupNorm(num_groups=32, num_channels=out_channels, eps=eps, affine=True)
++        self.norm2 = torch.nn.GroupNorm(
++            num_groups=32, num_channels=out_channels, eps=eps, affine=True
++        )
+ 
+         self.dropout = torch.nn.Dropout(0.0)
+         self.conv2 = nn.Conv3d(
+@@ -610,7 +674,9 @@ class TemporalResnetBlock(nn.Module):
+                 padding=0,
+             )
+ 
+-    def forward(self, input_tensor: torch.FloatTensor, temb: torch.FloatTensor) -> torch.FloatTensor:
++    def forward(
++        self, input_tensor: torch.FloatTensor, temb: torch.FloatTensor
++    ) -> torch.FloatTensor:
+         hidden_states = input_tensor
+ 
+         hidden_states = self.norm1(hidden_states)
+@@ -701,10 +767,14 @@ class SpatioTemporalResBlock(nn.Module):
+         batch_size = batch_frames // num_frames
+ 
+         hidden_states_mix = (
+-            hidden_states[None, :].reshape(batch_size, num_frames, channels, height, width).permute(0, 2, 1, 3, 4)
++            hidden_states[None, :]
++            .reshape(batch_size, num_frames, channels, height, width)
++            .permute(0, 2, 1, 3, 4)
+         )
+         hidden_states = (
+-            hidden_states[None, :].reshape(batch_size, num_frames, channels, height, width).permute(0, 2, 1, 3, 4)
++            hidden_states[None, :]
++            .reshape(batch_size, num_frames, channels, height, width)
++            .permute(0, 2, 1, 3, 4)
+         )
+ 
+         if temb is not None:
+@@ -717,7 +787,9 @@ class SpatioTemporalResBlock(nn.Module):
+             image_only_indicator=image_only_indicator,
+         )
+ 
+-        hidden_states = hidden_states.permute(0, 2, 1, 3, 4).reshape(batch_frames, channels, height, width)
++        hidden_states = hidden_states.permute(0, 2, 1, 3, 4).reshape(
++            batch_frames, channels, height, width
++        )
+         return hidden_states
+ 
+ 
+@@ -743,15 +815,22 @@ class AlphaBlender(nn.Module):
+     ):
+         super().__init__()
+         self.merge_strategy = merge_strategy
+-        self.switch_spatial_to_temporal_mix = switch_spatial_to_temporal_mix  # For TemporalVAE
++        self.switch_spatial_to_temporal_mix = (
++            switch_spatial_to_temporal_mix  # For TemporalVAE
++        )
+ 
+         if merge_strategy not in self.strategies:
+             raise ValueError(f"merge_strategy needs to be in {self.strategies}")
+ 
+         if self.merge_strategy == "fixed":
+             self.register_buffer("mix_factor", torch.Tensor([alpha]))
+-        elif self.merge_strategy == "learned" or self.merge_strategy == "learned_with_images":
+-            self.register_parameter("mix_factor", torch.nn.Parameter(torch.Tensor([alpha])))
++        elif (
++            self.merge_strategy == "learned"
++            or self.merge_strategy == "learned_with_images"
++        ):
++            self.register_parameter(
++                "mix_factor", torch.nn.Parameter(torch.Tensor([alpha]))
++            )
+         else:
+             raise ValueError(f"Unknown merge strategy {self.merge_strategy}")
+ 
+@@ -764,7 +843,9 @@ class AlphaBlender(nn.Module):
+ 
+         elif self.merge_strategy == "learned_with_images":
+             if image_only_indicator is None:
+-                raise ValueError("Please provide image_only_indicator to use learned_with_images merge strategy")
++                raise ValueError(
++                    "Please provide image_only_indicator to use learned_with_images merge strategy"
++                )
+ 
+             alpha = torch.where(
+                 image_only_indicator.bool(),
+@@ -779,7 +860,9 @@ class AlphaBlender(nn.Module):
+             elif ndims == 3:
+                 alpha = alpha.reshape(-1)[:, None, None]
+             else:
+-                raise ValueError(f"Unexpected ndims {ndims}. Dimensions should be 3 or 5")
++                raise ValueError(
++                    f"Unexpected ndims {ndims}. Dimensions should be 3 or 5"
++                )
+ 
+         else:
+             raise NotImplementedError
+diff --git a/src/diffusers/models/transformers/transformer_2d.py b/src/diffusers/models/transformers/transformer_2d.py
+index 555ea4f6..98825185 100644
+--- a/src/diffusers/models/transformers/transformer_2d.py
++++ b/src/diffusers/models/transformers/transformer_2d.py
+@@ -107,7 +107,10 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+                 raise NotImplementedError(
+                     f"Forward pass is not implemented when `patch_size` is not None and `norm_type` is '{norm_type}'."
+                 )
+-            elif norm_type in ["ada_norm", "ada_norm_zero"] and num_embeds_ada_norm is None:
++            elif (
++                norm_type in ["ada_norm", "ada_norm_zero"]
++                and num_embeds_ada_norm is None
++            ):
+                 raise ValueError(
+                     f"When using a `patch_size` and this `norm_type` ({norm_type}), `num_embeds_ada_norm` cannot be None."
+                 )
+@@ -134,7 +137,12 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+                 " results in future versions. If you have downloaded this checkpoint from the Hugging Face Hub, it"
+                 " would be very nice if you could open a Pull request for the `transformer/config.json` file"
+             )
+-            deprecate("norm_type!=num_embeds_ada_norm", "1.0.0", deprecation_message, standard_warn=False)
++            deprecate(
++                "norm_type!=num_embeds_ada_norm",
++                "1.0.0",
++                deprecation_message,
++                standard_warn=False,
++            )
+             norm_type = "ada_norm"
+ 
+         if self.is_input_continuous and self.is_input_vectorized:
+@@ -147,7 +155,11 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+                 f"Cannot define both `num_vector_embeds`: {num_vector_embeds} and `patch_size`: {patch_size}. Make"
+                 " sure that either `num_vector_embeds` or `num_patches` is None."
+             )
+-        elif not self.is_input_continuous and not self.is_input_vectorized and not self.is_input_patches:
++        elif (
++            not self.is_input_continuous
++            and not self.is_input_vectorized
++            and not self.is_input_patches
++        ):
+             raise ValueError(
+                 f"Has to define `in_channels`: {in_channels}, `num_vector_embeds`: {num_vector_embeds}, or patch_size:"
+                 f" {patch_size}. Make sure that `in_channels`, `num_vector_embeds` or `num_patches` is not None."
+@@ -157,14 +169,25 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+         if self.is_input_continuous:
+             self.in_channels = in_channels
+ 
+-            self.norm = torch.nn.GroupNorm(num_groups=norm_num_groups, num_channels=in_channels, eps=1e-6, affine=True)
++            self.norm = torch.nn.GroupNorm(
++                num_groups=norm_num_groups,
++                num_channels=in_channels,
++                eps=1e-6,
++                affine=True,
++            )
+             if use_linear_projection:
+                 self.proj_in = linear_cls(in_channels, inner_dim)
+             else:
+-                self.proj_in = conv_cls(in_channels, inner_dim, kernel_size=1, stride=1, padding=0)
++                self.proj_in = conv_cls(
++                    in_channels, inner_dim, kernel_size=1, stride=1, padding=0
++                )
+         elif self.is_input_vectorized:
+-            assert sample_size is not None, "Transformer2DModel over discrete input must provide sample_size"
+-            assert num_vector_embeds is not None, "Transformer2DModel over discrete input must provide num_embed"
++            assert (
++                sample_size is not None
++            ), "Transformer2DModel over discrete input must provide sample_size"
++            assert (
++                num_vector_embeds is not None
++            ), "Transformer2DModel over discrete input must provide num_embed"
+ 
+             self.height = sample_size
+             self.width = sample_size
+@@ -172,17 +195,24 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+             self.num_latent_pixels = self.height * self.width
+ 
+             self.latent_image_embedding = ImagePositionalEmbeddings(
+-                num_embed=num_vector_embeds, embed_dim=inner_dim, height=self.height, width=self.width
++                num_embed=num_vector_embeds,
++                embed_dim=inner_dim,
++                height=self.height,
++                width=self.width,
+             )
+         elif self.is_input_patches:
+-            assert sample_size is not None, "Transformer2DModel over patched input must provide sample_size"
++            assert (
++                sample_size is not None
++            ), "Transformer2DModel over patched input must provide sample_size"
+ 
+             self.height = sample_size
+             self.width = sample_size
+ 
+             self.patch_size = patch_size
+             interpolation_scale = (
+-                interpolation_scale if interpolation_scale is not None else max(self.config.sample_size // 64, 1)
++                interpolation_scale
++                if interpolation_scale is not None
++                else max(self.config.sample_size // 64, 1)
+             )
+             self.pos_embed = PatchEmbed(
+                 height=sample_size,
+@@ -224,18 +254,26 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+             if use_linear_projection:
+                 self.proj_out = linear_cls(inner_dim, in_channels)
+             else:
+-                self.proj_out = conv_cls(inner_dim, in_channels, kernel_size=1, stride=1, padding=0)
++                self.proj_out = conv_cls(
++                    inner_dim, in_channels, kernel_size=1, stride=1, padding=0
++                )
+         elif self.is_input_vectorized:
+             self.norm_out = nn.LayerNorm(inner_dim)
+             self.out = nn.Linear(inner_dim, self.num_vector_embeds - 1)
+         elif self.is_input_patches and norm_type != "ada_norm_single":
+             self.norm_out = nn.LayerNorm(inner_dim, elementwise_affine=False, eps=1e-6)
+             self.proj_out_1 = nn.Linear(inner_dim, 2 * inner_dim)
+-            self.proj_out_2 = nn.Linear(inner_dim, patch_size * patch_size * self.out_channels)
++            self.proj_out_2 = nn.Linear(
++                inner_dim, patch_size * patch_size * self.out_channels
++            )
+         elif self.is_input_patches and norm_type == "ada_norm_single":
+             self.norm_out = nn.LayerNorm(inner_dim, elementwise_affine=False, eps=1e-6)
+-            self.scale_shift_table = nn.Parameter(torch.randn(2, inner_dim) / inner_dim**0.5)
+-            self.proj_out = nn.Linear(inner_dim, patch_size * patch_size * self.out_channels)
++            self.scale_shift_table = nn.Parameter(
++                torch.randn(2, inner_dim) / inner_dim**0.5
++            )
++            self.proj_out = nn.Linear(
++                inner_dim, patch_size * patch_size * self.out_channels
++            )
+ 
+         # 5. PixArt-Alpha blocks.
+         self.adaln_single = None
+@@ -244,11 +282,15 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+             self.use_additional_conditions = self.config.sample_size == 128
+             # TODO(Sayak, PVP) clean this, for now we use sample size to determine whether to use
+             # additional conditions until we find better name
+-            self.adaln_single = AdaLayerNormSingle(inner_dim, use_additional_conditions=self.use_additional_conditions)
++            self.adaln_single = AdaLayerNormSingle(
++                inner_dim, use_additional_conditions=self.use_additional_conditions
++            )
+ 
+         self.caption_projection = None
+         if caption_channels is not None:
+-            self.caption_projection = PixArtAlphaTextProjection(in_features=caption_channels, hidden_size=inner_dim)
++            self.caption_projection = PixArtAlphaTextProjection(
++                in_features=caption_channels, hidden_size=inner_dim
++            )
+ 
+         self.gradient_checkpointing = False
+ 
+@@ -306,9 +348,14 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
+             `tuple` where the first element is the sample tensor.
+         """
++        # print(
++        #     "transformer 2d forward", hidden_states.shape
++        # )
+         if cross_attention_kwargs is not None:
+             if cross_attention_kwargs.get("scale", None) is not None:
+-                logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++                logger.warning(
++                    "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++                )
+         # ensure attention_mask is a bias, and give it a singleton query_tokens dimension.
+         #   we may have done this conversion already, e.g. if we came here via UNet2DConditionModel#forward.
+         #   we can tell by counting dims; if ndim == 2: it's a mask rather than a bias.
+@@ -329,7 +376,9 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+ 
+         # convert encoder_attention_mask to a bias the same way we do for attention_mask
+         if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:
+-            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
++            encoder_attention_mask = (
++                1 - encoder_attention_mask.to(hidden_states.dtype)
++            ) * -10000.0
+             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
+ 
+         # 1. Input
+@@ -341,16 +390,23 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+             if not self.use_linear_projection:
+                 hidden_states = self.proj_in(hidden_states)
+                 inner_dim = hidden_states.shape[1]
+-                hidden_states = hidden_states.permute(0, 2, 3, 1).reshape(batch, height * width, inner_dim)
++                hidden_states = hidden_states.permute(0, 2, 3, 1).reshape(
++                    batch, height * width, inner_dim
++                )
+             else:
+                 inner_dim = hidden_states.shape[1]
+-                hidden_states = hidden_states.permute(0, 2, 3, 1).reshape(batch, height * width, inner_dim)
++                hidden_states = hidden_states.permute(0, 2, 3, 1).reshape(
++                    batch, height * width, inner_dim
++                )
+                 hidden_states = self.proj_in(hidden_states)
+ 
+         elif self.is_input_vectorized:
+             hidden_states = self.latent_image_embedding(hidden_states)
+         elif self.is_input_patches:
+-            height, width = hidden_states.shape[-2] // self.patch_size, hidden_states.shape[-1] // self.patch_size
++            height, width = (
++                hidden_states.shape[-2] // self.patch_size,
++                hidden_states.shape[-1] // self.patch_size,
++            )
+             hidden_states = self.pos_embed(hidden_states)
+ 
+             if self.adaln_single is not None:
+@@ -360,14 +416,19 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+                     )
+                 batch_size = hidden_states.shape[0]
+                 timestep, embedded_timestep = self.adaln_single(
+-                    timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=hidden_states.dtype
++                    timestep,
++                    added_cond_kwargs,
++                    batch_size=batch_size,
++                    hidden_dtype=hidden_states.dtype,
+                 )
+ 
+         # 2. Blocks
+         if self.caption_projection is not None:
+             batch_size = hidden_states.shape[0]
+             encoder_hidden_states = self.caption_projection(encoder_hidden_states)
+-            encoder_hidden_states = encoder_hidden_states.view(batch_size, -1, hidden_states.shape[-1])
++            encoder_hidden_states = encoder_hidden_states.view(
++                batch_size, -1, hidden_states.shape[-1]
++            )
+ 
+         for block in self.transformer_blocks:
+             if self.training and self.gradient_checkpointing:
+@@ -381,7 +442,9 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(block),
+                     hidden_states,
+@@ -407,11 +470,19 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+         # 3. Output
+         if self.is_input_continuous:
+             if not self.use_linear_projection:
+-                hidden_states = hidden_states.reshape(batch, height, width, inner_dim).permute(0, 3, 1, 2).contiguous()
++                hidden_states = (
++                    hidden_states.reshape(batch, height, width, inner_dim)
++                    .permute(0, 3, 1, 2)
++                    .contiguous()
++                )
+                 hidden_states = self.proj_out(hidden_states)
+             else:
+                 hidden_states = self.proj_out(hidden_states)
+-                hidden_states = hidden_states.reshape(batch, height, width, inner_dim).permute(0, 3, 1, 2).contiguous()
++                hidden_states = (
++                    hidden_states.reshape(batch, height, width, inner_dim)
++                    .permute(0, 3, 1, 2)
++                    .contiguous()
++                )
+ 
+             output = hidden_states + residual
+         elif self.is_input_vectorized:
+@@ -429,10 +500,14 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+                     timestep, class_labels, hidden_dtype=hidden_states.dtype
+                 )
+                 shift, scale = self.proj_out_1(F.silu(conditioning)).chunk(2, dim=1)
+-                hidden_states = self.norm_out(hidden_states) * (1 + scale[:, None]) + shift[:, None]
++                hidden_states = (
++                    self.norm_out(hidden_states) * (1 + scale[:, None]) + shift[:, None]
++                )
+                 hidden_states = self.proj_out_2(hidden_states)
+             elif self.config.norm_type == "ada_norm_single":
+-                shift, scale = (self.scale_shift_table[None] + embedded_timestep[:, None]).chunk(2, dim=1)
++                shift, scale = (
++                    self.scale_shift_table[None] + embedded_timestep[:, None]
++                ).chunk(2, dim=1)
+                 hidden_states = self.norm_out(hidden_states)
+                 # Modulation
+                 hidden_states = hidden_states * (1 + scale) + shift
+@@ -443,14 +518,27 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
+             if self.adaln_single is None:
+                 height = width = int(hidden_states.shape[1] ** 0.5)
+             hidden_states = hidden_states.reshape(
+-                shape=(-1, height, width, self.patch_size, self.patch_size, self.out_channels)
++                shape=(
++                    -1,
++                    height,
++                    width,
++                    self.patch_size,
++                    self.patch_size,
++                    self.out_channels,
++                )
+             )
+             hidden_states = torch.einsum("nhwpqc->nchpwq", hidden_states)
+             output = hidden_states.reshape(
+-                shape=(-1, self.out_channels, height * self.patch_size, width * self.patch_size)
++                shape=(
++                    -1,
++                    self.out_channels,
++                    height * self.patch_size,
++                    width * self.patch_size,
++                )
+             )
+ 
+         if not return_dict:
+             return (output,)
+ 
+         return Transformer2DModelOutput(sample=output)
++
+diff --git a/src/diffusers/models/unets/unet_2d_blocks.py b/src/diffusers/models/unets/unet_2d_blocks.py
+index b9e9e63b..cb9d890f 100644
+--- a/src/diffusers/models/unets/unet_2d_blocks.py
++++ b/src/diffusers/models/unets/unet_2d_blocks.py
+@@ -74,7 +74,11 @@ def get_down_block(
+         )
+         attention_head_dim = num_attention_heads
+ 
+-    down_block_type = down_block_type[7:] if down_block_type.startswith("UNetRes") else down_block_type
++    down_block_type = (
++        down_block_type[7:]
++        if down_block_type.startswith("UNetRes")
++        else down_block_type
++    )
+     if down_block_type == "DownBlock2D":
+         return DownBlock2D(
+             num_layers=num_layers,
+@@ -125,7 +129,9 @@ def get_down_block(
+         )
+     elif down_block_type == "CrossAttnDownBlock2D":
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for CrossAttnDownBlock2D")
++            raise ValueError(
++                "cross_attention_dim must be specified for CrossAttnDownBlock2D"
++            )
+         return CrossAttnDownBlock2D(
+             num_layers=num_layers,
+             transformer_layers_per_block=transformer_layers_per_block,
+@@ -149,7 +155,9 @@ def get_down_block(
+         )
+     elif down_block_type == "SimpleCrossAttnDownBlock2D":
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for SimpleCrossAttnDownBlock2D")
++            raise ValueError(
++                "cross_attention_dim must be specified for SimpleCrossAttnDownBlock2D"
++            )
+         return SimpleCrossAttnDownBlock2D(
+             num_layers=num_layers,
+             in_channels=in_channels,
+@@ -359,7 +367,9 @@ def get_up_block(
+         )
+         attention_head_dim = num_attention_heads
+ 
+-    up_block_type = up_block_type[7:] if up_block_type.startswith("UNetRes") else up_block_type
++    up_block_type = (
++        up_block_type[7:] if up_block_type.startswith("UNetRes") else up_block_type
++    )
+     if up_block_type == "UpBlock2D":
+         return UpBlock2D(
+             num_layers=num_layers,
+@@ -394,7 +404,9 @@ def get_up_block(
+         )
+     elif up_block_type == "CrossAttnUpBlock2D":
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for CrossAttnUpBlock2D")
++            raise ValueError(
++                "cross_attention_dim must be specified for CrossAttnUpBlock2D"
++            )
+         return CrossAttnUpBlock2D(
+             num_layers=num_layers,
+             transformer_layers_per_block=transformer_layers_per_block,
+@@ -419,7 +431,9 @@ def get_up_block(
+         )
+     elif up_block_type == "SimpleCrossAttnUpBlock2D":
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for SimpleCrossAttnUpBlock2D")
++            raise ValueError(
++                "cross_attention_dim must be specified for SimpleCrossAttnUpBlock2D"
++            )
+         return SimpleCrossAttnUpBlock2D(
+             num_layers=num_layers,
+             in_channels=in_channels,
+@@ -634,11 +648,15 @@ class UNetMidBlock2D(nn.Module):
+         output_scale_factor: float = 1.0,
+     ):
+         super().__init__()
+-        resnet_groups = resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        resnet_groups = (
++            resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        )
+         self.add_attention = add_attention
+ 
+         if attn_groups is None:
+-            attn_groups = resnet_groups if resnet_time_scale_shift == "default" else None
++            attn_groups = (
++                resnet_groups if resnet_time_scale_shift == "default" else None
++            )
+ 
+         # there is always at least one resnet
+         if resnet_time_scale_shift == "spatial":
+@@ -688,7 +706,11 @@ class UNetMidBlock2D(nn.Module):
+                         rescale_output_factor=output_scale_factor,
+                         eps=resnet_eps,
+                         norm_num_groups=attn_groups,
+-                        spatial_norm_dim=temb_channels if resnet_time_scale_shift == "spatial" else None,
++                        spatial_norm_dim=(
++                            temb_channels
++                            if resnet_time_scale_shift == "spatial"
++                            else None
++                        ),
+                         residual_connection=True,
+                         bias=True,
+                         upcast_softmax=True,
+@@ -731,7 +753,9 @@ class UNetMidBlock2D(nn.Module):
+         self.attentions = nn.ModuleList(attentions)
+         self.resnets = nn.ModuleList(resnets)
+ 
+-    def forward(self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None) -> torch.FloatTensor:
++    def forward(
++        self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None
++    ) -> torch.FloatTensor:
+         hidden_states = self.resnets[0](hidden_states, temb)
+         for attn, resnet in zip(self.attentions, self.resnets[1:]):
+             if attn is not None:
+@@ -766,7 +790,9 @@ class UNetMidBlock2DCrossAttn(nn.Module):
+ 
+         self.has_cross_attention = True
+         self.num_attention_heads = num_attention_heads
+-        resnet_groups = resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        resnet_groups = (
++            resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        )
+ 
+         # support for variable transformer layers per block
+         if isinstance(transformer_layers_per_block, int):
+@@ -846,7 +872,9 @@ class UNetMidBlock2DCrossAttn(nn.Module):
+     ) -> torch.FloatTensor:
+         if cross_attention_kwargs is not None:
+             if cross_attention_kwargs.get("scale", None) is not None:
+-                logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++                logger.warning(
++                    "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++                )
+ 
+         hidden_states = self.resnets[0](hidden_states, temb)
+         for attn, resnet in zip(self.attentions, self.resnets[1:]):
+@@ -861,7 +889,9 @@ class UNetMidBlock2DCrossAttn(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = attn(
+                     hidden_states,
+                     encoder_hidden_states=encoder_hidden_states,
+@@ -914,7 +944,9 @@ class UNetMidBlock2DSimpleCrossAttn(nn.Module):
+         self.has_cross_attention = True
+ 
+         self.attention_head_dim = attention_head_dim
+-        resnet_groups = resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        resnet_groups = (
++            resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        )
+ 
+         self.num_heads = in_channels // self.attention_head_dim
+ 
+@@ -938,7 +970,9 @@ class UNetMidBlock2DSimpleCrossAttn(nn.Module):
+ 
+         for _ in range(num_layers):
+             processor = (
+-                AttnAddedKVProcessor2_0() if hasattr(F, "scaled_dot_product_attention") else AttnAddedKVProcessor()
++                AttnAddedKVProcessor2_0()
++                if hasattr(F, "scaled_dot_product_attention")
++                else AttnAddedKVProcessor()
+             )
+ 
+             attentions.append(
+@@ -984,9 +1018,13 @@ class UNetMidBlock2DSimpleCrossAttn(nn.Module):
+         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+     ) -> torch.FloatTensor:
+-        cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        cross_attention_kwargs = (
++            cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        )
+         if cross_attention_kwargs.get("scale", None) is not None:
+-            logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++            logger.warning(
++                "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++            )
+ 
+         if attention_mask is None:
+             # if encoder_hidden_states is defined: we are doing cross-attn, so we should use cross-attn mask.
+@@ -1082,7 +1120,11 @@ class AttnDownBlock2D(nn.Module):
+             self.downsamplers = nn.ModuleList(
+                 [
+                     Downsample2D(
+-                        out_channels, use_conv=True, out_channels=out_channels, padding=downsample_padding, name="op"
++                        out_channels,
++                        use_conv=True,
++                        out_channels=out_channels,
++                        padding=downsample_padding,
++                        name="op",
+                     )
+                 ]
+             )
+@@ -1114,9 +1156,13 @@ class AttnDownBlock2D(nn.Module):
+         upsample_size: Optional[int] = None,
+         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+     ) -> Tuple[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
+-        cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        cross_attention_kwargs = (
++            cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        )
+         if cross_attention_kwargs.get("scale", None) is not None:
+-            logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++            logger.warning(
++                "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++            )
+ 
+         output_states = ()
+ 
+@@ -1220,7 +1266,11 @@ class CrossAttnDownBlock2D(nn.Module):
+             self.downsamplers = nn.ModuleList(
+                 [
+                     Downsample2D(
+-                        out_channels, use_conv=True, out_channels=out_channels, padding=downsample_padding, name="op"
++                        out_channels,
++                        use_conv=True,
++                        out_channels=out_channels,
++                        padding=downsample_padding,
++                        name="op",
+                     )
+                 ]
+             )
+@@ -1241,7 +1291,9 @@ class CrossAttnDownBlock2D(nn.Module):
+     ) -> Tuple[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
+         if cross_attention_kwargs is not None:
+             if cross_attention_kwargs.get("scale", None) is not None:
+-                logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++                logger.warning(
++                    "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++                )
+ 
+         output_states = ()
+ 
+@@ -1259,7 +1311,9 @@ class CrossAttnDownBlock2D(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(resnet),
+                     hidden_states,
+@@ -1343,7 +1397,11 @@ class DownBlock2D(nn.Module):
+             self.downsamplers = nn.ModuleList(
+                 [
+                     Downsample2D(
+-                        out_channels, use_conv=True, out_channels=out_channels, padding=downsample_padding, name="op"
++                        out_channels,
++                        use_conv=True,
++                        out_channels=out_channels,
++                        padding=downsample_padding,
++                        name="op",
+                     )
+                 ]
+             )
+@@ -1353,7 +1411,11 @@ class DownBlock2D(nn.Module):
+         self.gradient_checkpointing = False
+ 
+     def forward(
+-        self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None, *args, **kwargs
++        self,
++        hidden_states: torch.FloatTensor,
++        temb: Optional[torch.FloatTensor] = None,
++        *args,
++        **kwargs,
+     ) -> Tuple[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
+         if len(args) > 0 or kwargs.get("scale", None) is not None:
+             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
+@@ -1372,7 +1434,10 @@ class DownBlock2D(nn.Module):
+ 
+                 if is_torch_version(">=", "1.11.0"):
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+-                        create_custom_forward(resnet), hidden_states, temb, use_reentrant=False
++                        create_custom_forward(resnet),
++                        hidden_states,
++                        temb,
++                        use_reentrant=False,
+                     )
+                 else:
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+@@ -1449,14 +1514,20 @@ class DownEncoderBlock2D(nn.Module):
+             self.downsamplers = nn.ModuleList(
+                 [
+                     Downsample2D(
+-                        out_channels, use_conv=True, out_channels=out_channels, padding=downsample_padding, name="op"
++                        out_channels,
++                        use_conv=True,
++                        out_channels=out_channels,
++                        padding=downsample_padding,
++                        name="op",
+                     )
+                 ]
+             )
+         else:
+             self.downsamplers = None
+ 
+-    def forward(self, hidden_states: torch.FloatTensor, *args, **kwargs) -> torch.FloatTensor:
++    def forward(
++        self, hidden_states: torch.FloatTensor, *args, **kwargs
++    ) -> torch.FloatTensor:
+         if len(args) > 0 or kwargs.get("scale", None) is not None:
+             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
+             deprecate("scale", "1.0.0", deprecation_message)
+@@ -1551,14 +1622,20 @@ class AttnDownEncoderBlock2D(nn.Module):
+             self.downsamplers = nn.ModuleList(
+                 [
+                     Downsample2D(
+-                        out_channels, use_conv=True, out_channels=out_channels, padding=downsample_padding, name="op"
++                        out_channels,
++                        use_conv=True,
++                        out_channels=out_channels,
++                        padding=downsample_padding,
++                        name="op",
+                     )
+                 ]
+             )
+         else:
+             self.downsamplers = None
+ 
+-    def forward(self, hidden_states: torch.FloatTensor, *args, **kwargs) -> torch.FloatTensor:
++    def forward(
++        self, hidden_states: torch.FloatTensor, *args, **kwargs
++    ) -> torch.FloatTensor:
+         if len(args) > 0 or kwargs.get("scale", None) is not None:
+             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
+             deprecate("scale", "1.0.0", deprecation_message)
+@@ -1648,8 +1725,12 @@ class AttnSkipDownBlock2D(nn.Module):
+                 down=True,
+                 kernel="fir",
+             )
+-            self.downsamplers = nn.ModuleList([FirDownsample2D(out_channels, out_channels=out_channels)])
+-            self.skip_conv = nn.Conv2d(3, out_channels, kernel_size=(1, 1), stride=(1, 1))
++            self.downsamplers = nn.ModuleList(
++                [FirDownsample2D(out_channels, out_channels=out_channels)]
++            )
++            self.skip_conv = nn.Conv2d(
++                3, out_channels, kernel_size=(1, 1), stride=(1, 1)
++            )
+         else:
+             self.resnet_down = None
+             self.downsamplers = None
+@@ -1739,8 +1820,12 @@ class SkipDownBlock2D(nn.Module):
+                 down=True,
+                 kernel="fir",
+             )
+-            self.downsamplers = nn.ModuleList([FirDownsample2D(out_channels, out_channels=out_channels)])
+-            self.skip_conv = nn.Conv2d(3, out_channels, kernel_size=(1, 1), stride=(1, 1))
++            self.downsamplers = nn.ModuleList(
++                [FirDownsample2D(out_channels, out_channels=out_channels)]
++            )
++            self.skip_conv = nn.Conv2d(
++                3, out_channels, kernel_size=(1, 1), stride=(1, 1)
++            )
+         else:
+             self.resnet_down = None
+             self.downsamplers = None
+@@ -1841,7 +1926,11 @@ class ResnetDownsampleBlock2D(nn.Module):
+         self.gradient_checkpointing = False
+ 
+     def forward(
+-        self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None, *args, **kwargs
++        self,
++        hidden_states: torch.FloatTensor,
++        temb: Optional[torch.FloatTensor] = None,
++        *args,
++        **kwargs,
+     ) -> Tuple[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
+         if len(args) > 0 or kwargs.get("scale", None) is not None:
+             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
+@@ -1860,7 +1949,10 @@ class ResnetDownsampleBlock2D(nn.Module):
+ 
+                 if is_torch_version(">=", "1.11.0"):
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+-                        create_custom_forward(resnet), hidden_states, temb, use_reentrant=False
++                        create_custom_forward(resnet),
++                        hidden_states,
++                        temb,
++                        use_reentrant=False,
+                     )
+                 else:
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+@@ -1930,7 +2022,9 @@ class SimpleCrossAttnDownBlock2D(nn.Module):
+             )
+ 
+             processor = (
+-                AttnAddedKVProcessor2_0() if hasattr(F, "scaled_dot_product_attention") else AttnAddedKVProcessor()
++                AttnAddedKVProcessor2_0()
++                if hasattr(F, "scaled_dot_product_attention")
++                else AttnAddedKVProcessor()
+             )
+ 
+             attentions.append(
+@@ -1984,9 +2078,13 @@ class SimpleCrossAttnDownBlock2D(nn.Module):
+         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+     ) -> Tuple[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
+-        cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        cross_attention_kwargs = (
++            cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        )
+         if cross_attention_kwargs.get("scale", None) is not None:
+-            logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++            logger.warning(
++                "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++            )
+ 
+         output_states = ()
+ 
+@@ -2013,7 +2111,9 @@ class SimpleCrossAttnDownBlock2D(nn.Module):
+ 
+                     return custom_forward
+ 
+-                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, temb)
++                hidden_states = torch.utils.checkpoint.checkpoint(
++                    create_custom_forward(resnet), hidden_states, temb
++                )
+                 hidden_states = attn(
+                     hidden_states,
+                     encoder_hidden_states=encoder_hidden_states,
+@@ -2088,7 +2188,11 @@ class KDownBlock2D(nn.Module):
+         self.gradient_checkpointing = False
+ 
+     def forward(
+-        self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None, *args, **kwargs
++        self,
++        hidden_states: torch.FloatTensor,
++        temb: Optional[torch.FloatTensor] = None,
++        *args,
++        **kwargs,
+     ) -> Tuple[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
+         if len(args) > 0 or kwargs.get("scale", None) is not None:
+             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
+@@ -2107,7 +2211,10 @@ class KDownBlock2D(nn.Module):
+ 
+                 if is_torch_version(">=", "1.11.0"):
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+-                        create_custom_forward(resnet), hidden_states, temb, use_reentrant=False
++                        create_custom_forward(resnet),
++                        hidden_states,
++                        temb,
++                        use_reentrant=False,
+                     )
+                 else:
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+@@ -2199,9 +2306,13 @@ class KCrossAttnDownBlock2D(nn.Module):
+         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+     ) -> Tuple[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
+-        cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        cross_attention_kwargs = (
++            cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        )
+         if cross_attention_kwargs.get("scale", None) is not None:
+-            logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++            logger.warning(
++                "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++            )
+ 
+         output_states = ()
+ 
+@@ -2217,7 +2328,9 @@ class KCrossAttnDownBlock2D(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(resnet),
+                     hidden_states,
+@@ -2323,7 +2436,9 @@ class AttnUpBlock2D(nn.Module):
+         self.resnets = nn.ModuleList(resnets)
+ 
+         if upsample_type == "conv":
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         elif upsample_type == "resnet":
+             self.upsamplers = nn.ModuleList(
+                 [
+@@ -2463,7 +2578,9 @@ class CrossAttnUpBlock2D(nn.Module):
+         self.resnets = nn.ModuleList(resnets)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -2483,7 +2600,9 @@ class CrossAttnUpBlock2D(nn.Module):
+     ) -> torch.FloatTensor:
+         if cross_attention_kwargs is not None:
+             if cross_attention_kwargs.get("scale", None) is not None:
+-                logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++                logger.warning(
++                    "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++                )
+ 
+         is_freeu_enabled = (
+             getattr(self, "s1", None)
+@@ -2522,7 +2641,9 @@ class CrossAttnUpBlock2D(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(resnet),
+                     hidden_states,
+@@ -2598,7 +2719,9 @@ class UpBlock2D(nn.Module):
+         self.resnets = nn.ModuleList(resnets)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -2654,7 +2777,10 @@ class UpBlock2D(nn.Module):
+ 
+                 if is_torch_version(">=", "1.11.0"):
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+-                        create_custom_forward(resnet), hidden_states, temb, use_reentrant=False
++                        create_custom_forward(resnet),
++                        hidden_states,
++                        temb,
++                        use_reentrant=False,
+                     )
+                 else:
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+@@ -2726,13 +2852,17 @@ class UpDecoderBlock2D(nn.Module):
+         self.resnets = nn.ModuleList(resnets)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+         self.resolution_idx = resolution_idx
+ 
+-    def forward(self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None) -> torch.FloatTensor:
++    def forward(
++        self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None
++    ) -> torch.FloatTensor:
+         for resnet in self.resnets:
+             hidden_states = resnet(hidden_states, temb=temb)
+ 
+@@ -2811,8 +2941,12 @@ class AttnUpDecoderBlock2D(nn.Module):
+                     dim_head=attention_head_dim,
+                     rescale_output_factor=output_scale_factor,
+                     eps=resnet_eps,
+-                    norm_num_groups=resnet_groups if resnet_time_scale_shift != "spatial" else None,
+-                    spatial_norm_dim=temb_channels if resnet_time_scale_shift == "spatial" else None,
++                    norm_num_groups=(
++                        resnet_groups if resnet_time_scale_shift != "spatial" else None
++                    ),
++                    spatial_norm_dim=(
++                        temb_channels if resnet_time_scale_shift == "spatial" else None
++                    ),
+                     residual_connection=True,
+                     bias=True,
+                     upcast_softmax=True,
+@@ -2824,13 +2958,17 @@ class AttnUpDecoderBlock2D(nn.Module):
+         self.resnets = nn.ModuleList(resnets)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+         self.resolution_idx = resolution_idx
+ 
+-    def forward(self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None) -> torch.FloatTensor:
++    def forward(
++        self, hidden_states: torch.FloatTensor, temb: Optional[torch.FloatTensor] = None
++    ) -> torch.FloatTensor:
+         for resnet, attn in zip(self.resnets, self.attentions):
+             hidden_states = resnet(hidden_states, temb=temb)
+             hidden_states = attn(hidden_states, temb=temb)
+@@ -2923,9 +3061,14 @@ class AttnSkipUpBlock2D(nn.Module):
+                 up=True,
+                 kernel="fir",
+             )
+-            self.skip_conv = nn.Conv2d(out_channels, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
++            self.skip_conv = nn.Conv2d(
++                out_channels, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
++            )
+             self.skip_norm = torch.nn.GroupNorm(
+-                num_groups=min(out_channels // 4, 32), num_channels=out_channels, eps=resnet_eps, affine=True
++                num_groups=min(out_channels // 4, 32),
++                num_channels=out_channels,
++                eps=resnet_eps,
++                affine=True,
+             )
+             self.act = nn.SiLU()
+         else:
+@@ -3035,9 +3178,14 @@ class SkipUpBlock2D(nn.Module):
+                 up=True,
+                 kernel="fir",
+             )
+-            self.skip_conv = nn.Conv2d(out_channels, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
++            self.skip_conv = nn.Conv2d(
++                out_channels, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
++            )
+             self.skip_norm = torch.nn.GroupNorm(
+-                num_groups=min(out_channels // 4, 32), num_channels=out_channels, eps=resnet_eps, affine=True
++                num_groups=min(out_channels // 4, 32),
++                num_channels=out_channels,
++                eps=resnet_eps,
++                affine=True,
+             )
+             self.act = nn.SiLU()
+         else:
+@@ -3184,7 +3332,10 @@ class ResnetUpsampleBlock2D(nn.Module):
+ 
+                 if is_torch_version(">=", "1.11.0"):
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+-                        create_custom_forward(resnet), hidden_states, temb, use_reentrant=False
++                        create_custom_forward(resnet),
++                        hidden_states,
++                        temb,
++                        use_reentrant=False,
+                     )
+                 else:
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+@@ -3253,7 +3404,9 @@ class SimpleCrossAttnUpBlock2D(nn.Module):
+             )
+ 
+             processor = (
+-                AttnAddedKVProcessor2_0() if hasattr(F, "scaled_dot_product_attention") else AttnAddedKVProcessor()
++                AttnAddedKVProcessor2_0()
++                if hasattr(F, "scaled_dot_product_attention")
++                else AttnAddedKVProcessor()
+             )
+ 
+             attentions.append(
+@@ -3310,9 +3463,13 @@ class SimpleCrossAttnUpBlock2D(nn.Module):
+         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+     ) -> torch.FloatTensor:
+-        cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        cross_attention_kwargs = (
++            cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        )
+         if cross_attention_kwargs.get("scale", None) is not None:
+-            logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++            logger.warning(
++                "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++            )
+ 
+         if attention_mask is None:
+             # if encoder_hidden_states is defined: we are doing cross-attn, so we should use cross-attn mask.
+@@ -3343,7 +3500,9 @@ class SimpleCrossAttnUpBlock2D(nn.Module):
+ 
+                     return custom_forward
+ 
+-                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, temb)
++                hidden_states = torch.utils.checkpoint.checkpoint(
++                    create_custom_forward(resnet), hidden_states, temb
++                )
+                 hidden_states = attn(
+                     hidden_states,
+                     encoder_hidden_states=encoder_hidden_states,
+@@ -3395,7 +3554,9 @@ class KUpBlock2D(nn.Module):
+             resnets.append(
+                 ResnetBlockCondNorm2D(
+                     in_channels=in_channels,
+-                    out_channels=k_out_channels if (i == num_layers - 1) else out_channels,
++                    out_channels=(
++                        k_out_channels if (i == num_layers - 1) else out_channels
++                    ),
+                     temb_channels=temb_channels,
+                     eps=resnet_eps,
+                     groups=groups,
+@@ -3445,7 +3606,10 @@ class KUpBlock2D(nn.Module):
+ 
+                 if is_torch_version(">=", "1.11.0"):
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+-                        create_custom_forward(resnet), hidden_states, temb, use_reentrant=False
++                        create_custom_forward(resnet),
++                        hidden_states,
++                        temb,
++                        use_reentrant=False,
+                     )
+                 else:
+                     hidden_states = torch.utils.checkpoint.checkpoint(
+@@ -3523,9 +3687,11 @@ class KCrossAttnUpBlock2D(nn.Module):
+             attentions.append(
+                 KAttentionBlock(
+                     k_out_channels if (i == num_layers - 1) else out_channels,
+-                    k_out_channels // attention_head_dim
+-                    if (i == num_layers - 1)
+-                    else out_channels // attention_head_dim,
++                    (
++                        k_out_channels // attention_head_dim
++                        if (i == num_layers - 1)
++                        else out_channels // attention_head_dim
++                    ),
+                     attention_head_dim,
+                     cross_attention_dim=cross_attention_dim,
+                     temb_channels=temb_channels,
+@@ -3574,7 +3740,9 @@ class KCrossAttnUpBlock2D(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(resnet),
+                     hidden_states,
+@@ -3675,11 +3843,19 @@ class KAttentionBlock(nn.Module):
+             cross_attention_norm=cross_attention_norm,
+         )
+ 
+-    def _to_3d(self, hidden_states: torch.FloatTensor, height: int, weight: int) -> torch.FloatTensor:
+-        return hidden_states.permute(0, 2, 3, 1).reshape(hidden_states.shape[0], height * weight, -1)
++    def _to_3d(
++        self, hidden_states: torch.FloatTensor, height: int, weight: int
++    ) -> torch.FloatTensor:
++        return hidden_states.permute(0, 2, 3, 1).reshape(
++            hidden_states.shape[0], height * weight, -1
++        )
+ 
+-    def _to_4d(self, hidden_states: torch.FloatTensor, height: int, weight: int) -> torch.FloatTensor:
+-        return hidden_states.permute(0, 2, 1).reshape(hidden_states.shape[0], -1, height, weight)
++    def _to_4d(
++        self, hidden_states: torch.FloatTensor, height: int, weight: int
++    ) -> torch.FloatTensor:
++        return hidden_states.permute(0, 2, 1).reshape(
++            hidden_states.shape[0], -1, height, weight
++        )
+ 
+     def forward(
+         self,
+@@ -3692,9 +3868,13 @@ class KAttentionBlock(nn.Module):
+         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+     ) -> torch.FloatTensor:
+-        cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        cross_attention_kwargs = (
++            cross_attention_kwargs if cross_attention_kwargs is not None else {}
++        )
+         if cross_attention_kwargs.get("scale", None) is not None:
+-            logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++            logger.warning(
++                "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++            )
+ 
+         # 1. Self-Attention
+         if self.add_self_attention:
+@@ -3721,7 +3901,11 @@ class KAttentionBlock(nn.Module):
+         attn_output = self.attn2(
+             norm_hidden_states,
+             encoder_hidden_states=encoder_hidden_states,
+-            attention_mask=attention_mask if encoder_hidden_states is None else encoder_attention_mask,
++            attention_mask=(
++                attention_mask
++                if encoder_hidden_states is None
++                else encoder_attention_mask
++            ),
+             **cross_attention_kwargs,
+         )
+         attn_output = self._to_4d(attn_output, height, weight)
+diff --git a/src/diffusers/models/unets/unet_3d_blocks.py b/src/diffusers/models/unets/unet_3d_blocks.py
+index a48f1841..536560ba 100644
+--- a/src/diffusers/models/unets/unet_3d_blocks.py
++++ b/src/diffusers/models/unets/unet_3d_blocks.py
+@@ -33,10 +33,101 @@ from ..transformers.transformer_temporal import (
+     TransformerSpatioTemporalModel,
+     TransformerTemporalModel,
+ )
++from einops import rearrange
+ 
+ 
+ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+ 
++def get_views(video_length, window_size=16, overlap=4):
++    ranges = [
++        (i, i + window_size)
++        for i in range(0, video_length - window_size + 1, window_size - overlap)
++    ]
++    if len(ranges) == 0:
++        ranges.append((0,video_length))
++    elif ranges[-1][-1] != video_length:
++        ranges.append((ranges[-1][-1] - overlap, video_length))
++    return ranges
++
++def calculate_active_loras(camera_motions, t_start, t_end):
++    # Treshold for activating motion LoRA
++    threshold_horizontal = 0.08
++    threshold_vertical = 0.04
++
++    active_loras = []
++
++    # Get current window
++    window = torch.tensor(camera_motions[t_start:t_end])
++    # Calculate average motion vector
++    avg_motion = torch.mean(window, dim=0)
++
++    if -avg_motion[0] > threshold_horizontal:
++        active_loras.append("left")
++    if avg_motion[0] > threshold_horizontal:
++        active_loras.append("right")
++    if avg_motion[1] > threshold_vertical:
++        active_loras.append("up")
++    if -avg_motion[1] > threshold_vertical:
++        active_loras.append("down")
++    # logger.info(f"Active LoRAs: {active_loras}")
++    return active_loras
++
++
++def generate_weight_sequence(n):
++    """
++    Generate weight sequence for chunked motion module
++    Taken from https://github.com/arthur-qiu/FreeNoise-AnimateDiff/blob/e01d82233c595ce22f1a5eba487911c345ce7b5b/animatediff/models/motion_module.py#L30-L37
++    """
++
++    if n % 2 == 0:
++        max_weight = n // 2
++        weight_sequence = list(range(1, max_weight + 1, 1)) + list(
++            range(max_weight, 0, -1)
++        )
++    else:
++        max_weight = (n + 1) // 2
++        weight_sequence = (
++            list(range(1, max_weight, 1))
++            + [max_weight]
++            + list(range(max_weight - 1, 0, -1))
++        )
++    return weight_sequence
++
++def chunked_motion_module(
++    motion_module, hidden_states, num_frames, set_adapters, camera_motions
++):
++    """
++    Chunked motion module
++    Adapted from https://github.com/arthur-qiu/FreeNoise-AnimateDiff/blob/e01d82233c595ce22f1a5eba487911c345ce7b5b/animatediff/models/motion_module.py#L260-L283
++    """
++
++    views = get_views(num_frames)
++    hidden_states = rearrange(hidden_states, "(b f) d c e -> b f d c e", f=num_frames)
++    count = torch.zeros_like(hidden_states)
++    value = torch.zeros_like(hidden_states)
++    for t_start, t_end in views:
++        active_loras = calculate_active_loras(camera_motions, t_start, t_end)
++        set_adapters(active_loras, adapter_weights=[0.7] * len(active_loras))
++
++        weight_sequence = generate_weight_sequence(t_end - t_start)
++        weight_tensor = torch.ones_like(count[:, t_start:t_end])
++        weight_tensor = weight_tensor * torch.Tensor(weight_sequence).to(
++            hidden_states.device
++        ).unsqueeze(0).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
++        sub_hidden_states = rearrange(
++            hidden_states[:, t_start:t_end], "b f d c e -> (b f) d c e"
++        )
++        sub_hidden_states = motion_module(
++            sub_hidden_states, num_frames=t_end - t_start
++        )[0]
++        sub_hidden_states = rearrange(
++            sub_hidden_states, "(b f) d c e -> b f d c e", f=t_end - t_start
++        )
++        value[:, t_start:t_end] += sub_hidden_states * weight_tensor
++        count[:, t_start:t_end] += weight_tensor
++    hidden_states = torch.where(count > 0, value / count, value)
++    return rearrange(hidden_states, "b f d c e -> (b f) d c e")
++
+ 
+ def get_down_block(
+     down_block_type: str,
+@@ -82,7 +173,9 @@ def get_down_block(
+         )
+     elif down_block_type == "CrossAttnDownBlock3D":
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for CrossAttnDownBlock3D")
++            raise ValueError(
++                "cross_attention_dim must be specified for CrossAttnDownBlock3D"
++            )
+         return CrossAttnDownBlock3D(
+             num_layers=num_layers,
+             in_channels=in_channels,
+@@ -118,7 +211,9 @@ def get_down_block(
+         )
+     elif down_block_type == "CrossAttnDownBlockMotion":
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for CrossAttnDownBlockMotion")
++            raise ValueError(
++                "cross_attention_dim must be specified for CrossAttnDownBlockMotion"
++            )
+         return CrossAttnDownBlockMotion(
+             num_layers=num_layers,
+             in_channels=in_channels,
+@@ -151,7 +246,9 @@ def get_down_block(
+     elif down_block_type == "CrossAttnDownBlockSpatioTemporal":
+         # added for SDV
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for CrossAttnDownBlockSpatioTemporal")
++            raise ValueError(
++                "cross_attention_dim must be specified for CrossAttnDownBlockSpatioTemporal"
++            )
+         return CrossAttnDownBlockSpatioTemporal(
+             in_channels=in_channels,
+             out_channels=out_channels,
+@@ -214,7 +311,9 @@ def get_up_block(
+         )
+     elif up_block_type == "CrossAttnUpBlock3D":
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for CrossAttnUpBlock3D")
++            raise ValueError(
++                "cross_attention_dim must be specified for CrossAttnUpBlock3D"
++            )
+         return CrossAttnUpBlock3D(
+             num_layers=num_layers,
+             in_channels=in_channels,
+@@ -252,7 +351,9 @@ def get_up_block(
+         )
+     elif up_block_type == "CrossAttnUpBlockMotion":
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for CrossAttnUpBlockMotion")
++            raise ValueError(
++                "cross_attention_dim must be specified for CrossAttnUpBlockMotion"
++            )
+         return CrossAttnUpBlockMotion(
+             num_layers=num_layers,
+             in_channels=in_channels,
+@@ -288,7 +389,9 @@ def get_up_block(
+     elif up_block_type == "CrossAttnUpBlockSpatioTemporal":
+         # added for SDV
+         if cross_attention_dim is None:
+-            raise ValueError("cross_attention_dim must be specified for CrossAttnUpBlockSpatioTemporal")
++            raise ValueError(
++                "cross_attention_dim must be specified for CrossAttnUpBlockSpatioTemporal"
++            )
+         return CrossAttnUpBlockSpatioTemporal(
+             in_channels=in_channels,
+             out_channels=out_channels,
+@@ -328,7 +431,9 @@ class UNetMidBlock3DCrossAttn(nn.Module):
+ 
+         self.has_cross_attention = True
+         self.num_attention_heads = num_attention_heads
+-        resnet_groups = resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        resnet_groups = (
++            resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        )
+ 
+         # there is always at least one resnet
+         resnets = [
+@@ -758,7 +863,9 @@ class CrossAttnUpBlock3D(nn.Module):
+         self.temp_attentions = nn.ModuleList(temp_attentions)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -880,7 +987,9 @@ class UpBlock3D(nn.Module):
+         self.temp_convs = nn.ModuleList(temp_convs)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -1009,6 +1118,8 @@ class DownBlockMotion(nn.Module):
+         hidden_states: torch.FloatTensor,
+         temb: Optional[torch.FloatTensor] = None,
+         num_frames: int = 1,
++        set_adapters=None,
++        camera_motions=None,
+         *args,
+         **kwargs,
+     ) -> Union[torch.FloatTensor, Tuple[torch.FloatTensor, ...]]:
+@@ -1042,7 +1153,9 @@ class DownBlockMotion(nn.Module):
+ 
+             else:
+                 hidden_states = resnet(hidden_states, temb)
+-            hidden_states = motion_module(hidden_states, num_frames=num_frames)[0]
++            hidden_states = chunked_motion_module(
++                motion_module, hidden_states, num_frames, set_adapters, camera_motions
++            )
+ 
+             output_states = output_states + (hidden_states,)
+ 
+@@ -1180,10 +1293,14 @@ class CrossAttnDownBlockMotion(nn.Module):
+         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+         additional_residuals: Optional[torch.FloatTensor] = None,
++        set_adapters=None,
++        camera_motions=None,
+     ):
+         if cross_attention_kwargs is not None:
+             if cross_attention_kwargs.get("scale", None) is not None:
+-                logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++                logger.warning(
++                    "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++                )
+ 
+         output_states = ()
+ 
+@@ -1200,7 +1317,9 @@ class CrossAttnDownBlockMotion(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(resnet),
+                     hidden_states,
+@@ -1225,10 +1344,9 @@ class CrossAttnDownBlockMotion(nn.Module):
+                     encoder_attention_mask=encoder_attention_mask,
+                     return_dict=False,
+                 )[0]
+-            hidden_states = motion_module(
+-                hidden_states,
+-                num_frames=num_frames,
+-            )[0]
++            hidden_states = chunked_motion_module(
++                motion_module, hidden_states, num_frames, set_adapters, camera_motions
++            )
+ 
+             # apply additional residuals to the output of the last pair of resnet and attention blocks
+             if i == len(blocks) - 1 and additional_residuals is not None:
+@@ -1346,7 +1464,9 @@ class CrossAttnUpBlockMotion(nn.Module):
+         self.motion_modules = nn.ModuleList(motion_modules)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -1364,10 +1484,14 @@ class CrossAttnUpBlockMotion(nn.Module):
+         attention_mask: Optional[torch.FloatTensor] = None,
+         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+         num_frames: int = 1,
++        set_adapters=None,
++        camera_motions=None,
+     ) -> torch.FloatTensor:
+         if cross_attention_kwargs is not None:
+             if cross_attention_kwargs.get("scale", None) is not None:
+-                logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++                logger.warning(
++                    "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++                )
+ 
+         is_freeu_enabled = (
+             getattr(self, "s1", None)
+@@ -1407,7 +1531,9 @@ class CrossAttnUpBlockMotion(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(resnet),
+                     hidden_states,
+@@ -1432,10 +1558,9 @@ class CrossAttnUpBlockMotion(nn.Module):
+                     encoder_attention_mask=encoder_attention_mask,
+                     return_dict=False,
+                 )[0]
+-            hidden_states = motion_module(
+-                hidden_states,
+-                num_frames=num_frames,
+-            )[0]
++            hidden_states = chunked_motion_module(
++                motion_module, hidden_states, num_frames, set_adapters, camera_motions
++            )
+ 
+         if self.upsamplers is not None:
+             for upsampler in self.upsamplers:
+@@ -1507,7 +1632,9 @@ class UpBlockMotion(nn.Module):
+         self.motion_modules = nn.ModuleList(motion_modules)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -1521,6 +1648,8 @@ class UpBlockMotion(nn.Module):
+         temb: Optional[torch.FloatTensor] = None,
+         upsample_size=None,
+         num_frames: int = 1,
++        set_adapters=None,
++        camera_motions=None,
+         *args,
+         **kwargs,
+     ) -> torch.FloatTensor:
+@@ -1578,7 +1707,9 @@ class UpBlockMotion(nn.Module):
+ 
+             else:
+                 hidden_states = resnet(hidden_states, temb)
+-            hidden_states = motion_module(hidden_states, num_frames=num_frames)[0]
++            hidden_states = chunked_motion_module(
++                motion_module, hidden_states, num_frames, set_adapters, camera_motions
++            )
+ 
+         if self.upsamplers is not None:
+             for upsampler in self.upsamplers:
+@@ -1615,7 +1746,9 @@ class UNetMidBlockCrossAttnMotion(nn.Module):
+ 
+         self.has_cross_attention = True
+         self.num_attention_heads = num_attention_heads
+-        resnet_groups = resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        resnet_groups = (
++            resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
++        )
+ 
+         # there is always at least one resnet
+         resnets = [
+@@ -1704,10 +1837,14 @@ class UNetMidBlockCrossAttnMotion(nn.Module):
+         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+         num_frames: int = 1,
++        set_adapters=None,
++        camera_motions=None,
+     ) -> torch.FloatTensor:
+         if cross_attention_kwargs is not None:
+             if cross_attention_kwargs.get("scale", None) is not None:
+-                logger.warning("Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored.")
++                logger.warning(
++                    "Passing `scale` to `cross_attention_kwargs` is depcrecated. `scale` will be ignored."
++                )
+ 
+         hidden_states = self.resnets[0](hidden_states, temb)
+ 
+@@ -1724,7 +1861,9 @@ class UNetMidBlockCrossAttnMotion(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = attn(
+                     hidden_states,
+                     encoder_hidden_states=encoder_hidden_states,
+@@ -1754,10 +1893,13 @@ class UNetMidBlockCrossAttnMotion(nn.Module):
+                     encoder_attention_mask=encoder_attention_mask,
+                     return_dict=False,
+                 )[0]
+-                hidden_states = motion_module(
++                hidden_states = chunked_motion_module(
++                    motion_module,
+                     hidden_states,
+-                    num_frames=num_frames,
+-                )[0]
++                    num_frames,
++                    set_adapters,
++                    camera_motions,
++                )
+                 hidden_states = resnet(hidden_states, temb)
+ 
+         return hidden_states
+@@ -1854,7 +1996,9 @@ class UpBlockTemporalDecoder(nn.Module):
+         self.resnets = nn.ModuleList(resnets)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -1956,7 +2100,9 @@ class UNetMidBlockSpatioTemporal(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = attn(
+                     hidden_states,
+                     encoder_hidden_states=encoder_hidden_states,
+@@ -2159,7 +2305,9 @@ class CrossAttnDownBlockSpatioTemporal(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(resnet),
+                     hidden_states,
+@@ -2229,7 +2377,9 @@ class UpBlockSpatioTemporal(nn.Module):
+         self.resnets = nn.ModuleList(resnets)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -2338,7 +2488,9 @@ class CrossAttnUpBlockSpatioTemporal(nn.Module):
+         self.resnets = nn.ModuleList(resnets)
+ 
+         if add_upsample:
+-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
++            self.upsamplers = nn.ModuleList(
++                [Upsample2D(out_channels, use_conv=True, out_channels=out_channels)]
++            )
+         else:
+             self.upsamplers = None
+ 
+@@ -2371,7 +2523,9 @@ class CrossAttnUpBlockSpatioTemporal(nn.Module):
+ 
+                     return custom_forward
+ 
+-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                ckpt_kwargs: Dict[str, Any] = (
++                    {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
++                )
+                 hidden_states = torch.utils.checkpoint.checkpoint(
+                     create_custom_forward(resnet),
+                     hidden_states,
+@@ -2403,3 +2557,4 @@ class CrossAttnUpBlockSpatioTemporal(nn.Module):
+                 hidden_states = upsampler(hidden_states)
+ 
+         return hidden_states
++
+diff --git a/src/diffusers/models/unets/unet_motion_model.py b/src/diffusers/models/unets/unet_motion_model.py
+index ab2eac4c..e205f270 100644
+--- a/src/diffusers/models/unets/unet_motion_model.py
++++ b/src/diffusers/models/unets/unet_motion_model.py
+@@ -47,7 +47,6 @@ from .unet_3d_condition import UNet3DConditionOutput
+ 
+ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+ 
+-
+ class MotionModules(nn.Module):
+     def __init__(
+         self,
+@@ -117,7 +116,9 @@ class MotionAdapter(ModelMixin, ConfigMixin):
+ 
+         if conv_in_channels:
+             # input
+-            self.conv_in = nn.Conv2d(conv_in_channels, block_out_channels[0], kernel_size=3, padding=1)
++            self.conv_in = nn.Conv2d(
++                conv_in_channels, block_out_channels[0], kernel_size=3, padding=1
++            )
+         else:
+             self.conv_in = None
+ 
+@@ -235,7 +236,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+                 f"Must provide the same number of `block_out_channels` as `down_block_types`. `block_out_channels`: {block_out_channels}. `down_block_types`: {down_block_types}."
+             )
+ 
+-        if not isinstance(num_attention_heads, int) and len(num_attention_heads) != len(down_block_types):
++        if not isinstance(num_attention_heads, int) and len(num_attention_heads) != len(
++            down_block_types
++        ):
+             raise ValueError(
+                 f"Must provide the same number of `num_attention_heads` as `down_block_types`. `num_attention_heads`: {num_attention_heads}. `down_block_types`: {down_block_types}."
+             )
+@@ -245,7 +248,10 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         conv_out_kernel = 3
+         conv_in_padding = (conv_in_kernel - 1) // 2
+         self.conv_in = nn.Conv2d(
+-            in_channels, block_out_channels[0], kernel_size=conv_in_kernel, padding=conv_in_padding
++            in_channels,
++            block_out_channels[0],
++            kernel_size=conv_in_kernel,
++            padding=conv_in_padding,
+         )
+ 
+         # time
+@@ -254,7 +260,10 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         timestep_input_dim = block_out_channels[0]
+ 
+         self.time_embedding = TimestepEmbedding(
+-            timestep_input_dim, time_embed_dim, act_fn=act_fn, cond_proj_dim=time_cond_proj_dim
++            timestep_input_dim,
++            time_embed_dim,
++            act_fn=act_fn,
++            cond_proj_dim=time_cond_proj_dim,
+         )
+ 
+         if encoder_hid_dim_type is None:
+@@ -338,7 +347,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+ 
+             prev_output_channel = output_channel
+             output_channel = reversed_block_out_channels[i]
+-            input_channel = reversed_block_out_channels[min(i + 1, len(block_out_channels) - 1)]
++            input_channel = reversed_block_out_channels[
++                min(i + 1, len(block_out_channels) - 1)
++            ]
+ 
+             # add upsample block for all BUT final layer
+             if not is_final_block:
+@@ -372,7 +383,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         # out
+         if norm_num_groups is not None:
+             self.conv_norm_out = nn.GroupNorm(
+-                num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps
++                num_channels=block_out_channels[0],
++                num_groups=norm_num_groups,
++                eps=norm_eps,
+             )
+             self.conv_act = nn.SiLU()
+         else:
+@@ -381,7 +394,10 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+ 
+         conv_out_padding = (conv_out_kernel - 1) // 2
+         self.conv_out = nn.Conv2d(
+-            block_out_channels[0], out_channels, kernel_size=conv_out_kernel, padding=conv_out_padding
++            block_out_channels[0],
++            out_channels,
++            kernel_size=conv_out_kernel,
++            padding=conv_out_padding,
+         )
+ 
+     @classmethod
+@@ -415,9 +431,15 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         config["up_block_types"] = up_blocks
+ 
+         if has_motion_adapter:
+-            config["motion_num_attention_heads"] = motion_adapter.config["motion_num_attention_heads"]
+-            config["motion_max_seq_length"] = motion_adapter.config["motion_max_seq_length"]
+-            config["use_motion_mid_block"] = motion_adapter.config["use_motion_mid_block"]
++            config["motion_num_attention_heads"] = motion_adapter.config[
++                "motion_num_attention_heads"
++            ]
++            config["motion_max_seq_length"] = motion_adapter.config[
++                "motion_max_seq_length"
++            ]
++            config["use_motion_mid_block"] = motion_adapter.config[
++                "use_motion_mid_block"
++            ]
+ 
+             # For PIA UNets we need to set the number input channels to 9
+             if motion_adapter.config["conv_in_channels"]:
+@@ -439,7 +461,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+             updated_conv_in_weight = torch.cat(
+                 [unet.conv_in.weight, motion_adapter.conv_in.weight[:, 4:, :, :]], dim=1
+             )
+-            model.conv_in.load_state_dict({"weight": updated_conv_in_weight, "bias": unet.conv_in.bias})
++            model.conv_in.load_state_dict(
++                {"weight": updated_conv_in_weight, "bias": unet.conv_in.bias}
++            )
+         else:
+             model.conv_in.load_state_dict(unet.conv_in.state_dict())
+ 
+@@ -447,21 +471,33 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         model.time_embedding.load_state_dict(unet.time_embedding.state_dict())
+ 
+         for i, down_block in enumerate(unet.down_blocks):
+-            model.down_blocks[i].resnets.load_state_dict(down_block.resnets.state_dict())
++            model.down_blocks[i].resnets.load_state_dict(
++                down_block.resnets.state_dict()
++            )
+             if hasattr(model.down_blocks[i], "attentions"):
+-                model.down_blocks[i].attentions.load_state_dict(down_block.attentions.state_dict())
++                model.down_blocks[i].attentions.load_state_dict(
++                    down_block.attentions.state_dict()
++                )
+             if model.down_blocks[i].downsamplers:
+-                model.down_blocks[i].downsamplers.load_state_dict(down_block.downsamplers.state_dict())
++                model.down_blocks[i].downsamplers.load_state_dict(
++                    down_block.downsamplers.state_dict()
++                )
+ 
+         for i, up_block in enumerate(unet.up_blocks):
+             model.up_blocks[i].resnets.load_state_dict(up_block.resnets.state_dict())
+             if hasattr(model.up_blocks[i], "attentions"):
+-                model.up_blocks[i].attentions.load_state_dict(up_block.attentions.state_dict())
++                model.up_blocks[i].attentions.load_state_dict(
++                    up_block.attentions.state_dict()
++                )
+             if model.up_blocks[i].upsamplers:
+-                model.up_blocks[i].upsamplers.load_state_dict(up_block.upsamplers.state_dict())
++                model.up_blocks[i].upsamplers.load_state_dict(
++                    up_block.upsamplers.state_dict()
++                )
+ 
+         model.mid_block.resnets.load_state_dict(unet.mid_block.resnets.state_dict())
+-        model.mid_block.attentions.load_state_dict(unet.mid_block.attentions.state_dict())
++        model.mid_block.attentions.load_state_dict(
++            unet.mid_block.attentions.state_dict()
++        )
+ 
+         if unet.conv_norm_out is not None:
+             model.conv_norm_out.load_state_dict(unet.conv_norm_out.state_dict())
+@@ -503,13 +539,19 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+ 
+     def load_motion_modules(self, motion_adapter: Optional[MotionAdapter]) -> None:
+         for i, down_block in enumerate(motion_adapter.down_blocks):
+-            self.down_blocks[i].motion_modules.load_state_dict(down_block.motion_modules.state_dict())
++            self.down_blocks[i].motion_modules.load_state_dict(
++                down_block.motion_modules.state_dict()
++            )
+         for i, up_block in enumerate(motion_adapter.up_blocks):
+-            self.up_blocks[i].motion_modules.load_state_dict(up_block.motion_modules.state_dict())
++            self.up_blocks[i].motion_modules.load_state_dict(
++                up_block.motion_modules.state_dict()
++            )
+ 
+         # to support older motion modules that don't have a mid_block
+         if hasattr(self.mid_block, "motion_modules"):
+-            self.mid_block.motion_modules.load_state_dict(motion_adapter.mid_block.motion_modules.state_dict())
++            self.mid_block.motion_modules.load_state_dict(
++                motion_adapter.mid_block.motion_modules.state_dict()
++            )
+ 
+     def save_motion_modules(
+         self,
+@@ -557,9 +599,15 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         # set recursively
+         processors = {}
+ 
+-        def fn_recursive_add_processors(name: str, module: torch.nn.Module, processors: Dict[str, AttentionProcessor]):
++        def fn_recursive_add_processors(
++            name: str,
++            module: torch.nn.Module,
++            processors: Dict[str, AttentionProcessor],
++        ):
+             if hasattr(module, "get_processor"):
+-                processors[f"{name}.processor"] = module.get_processor(return_deprecated_lora=True)
++                processors[f"{name}.processor"] = module.get_processor(
++                    return_deprecated_lora=True
++                )
+ 
+             for sub_name, child in module.named_children():
+                 fn_recursive_add_processors(f"{name}.{sub_name}", child, processors)
+@@ -572,7 +620,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         return processors
+ 
+     # Copied from diffusers.models.unets.unet_2d_condition.UNet2DConditionModel.set_attn_processor
+-    def set_attn_processor(self, processor: Union[AttentionProcessor, Dict[str, AttentionProcessor]]):
++    def set_attn_processor(
++        self, processor: Union[AttentionProcessor, Dict[str, AttentionProcessor]]
++    ):
+         r"""
+         Sets the attention processor to use to compute attention.
+ 
+@@ -607,7 +657,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+             fn_recursive_attn_processor(name, module, processor)
+ 
+     # Copied from diffusers.models.unets.unet_3d_condition.UNet3DConditionModel.enable_forward_chunking
+-    def enable_forward_chunking(self, chunk_size: Optional[int] = None, dim: int = 0) -> None:
++    def enable_forward_chunking(
++        self, chunk_size: Optional[int] = None, dim: int = 0
++    ) -> None:
+         """
+         Sets the attention processor to use [feed forward
+         chunking](https://huggingface.co/blog/reformer#2-chunked-feed-forward-layers).
+@@ -626,7 +678,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         # By default chunk size is 1
+         chunk_size = chunk_size or 1
+ 
+-        def fn_recursive_feed_forward(module: torch.nn.Module, chunk_size: int, dim: int):
++        def fn_recursive_feed_forward(
++            module: torch.nn.Module, chunk_size: int, dim: int
++        ):
+             if hasattr(module, "set_chunk_feed_forward"):
+                 module.set_chunk_feed_forward(chunk_size=chunk_size, dim=dim)
+ 
+@@ -638,7 +692,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+ 
+     # Copied from diffusers.models.unets.unet_3d_condition.UNet3DConditionModel.disable_forward_chunking
+     def disable_forward_chunking(self) -> None:
+-        def fn_recursive_feed_forward(module: torch.nn.Module, chunk_size: int, dim: int):
++        def fn_recursive_feed_forward(
++            module: torch.nn.Module, chunk_size: int, dim: int
++        ):
+             if hasattr(module, "set_chunk_feed_forward"):
+                 module.set_chunk_feed_forward(chunk_size=chunk_size, dim=dim)
+ 
+@@ -653,9 +709,15 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         """
+         Disables custom attention processors and sets the default attention implementation.
+         """
+-        if all(proc.__class__ in ADDED_KV_ATTENTION_PROCESSORS for proc in self.attn_processors.values()):
++        if all(
++            proc.__class__ in ADDED_KV_ATTENTION_PROCESSORS
++            for proc in self.attn_processors.values()
++        ):
+             processor = AttnAddedKVProcessor()
+-        elif all(proc.__class__ in CROSS_ATTENTION_PROCESSORS for proc in self.attn_processors.values()):
++        elif all(
++            proc.__class__ in CROSS_ATTENTION_PROCESSORS
++            for proc in self.attn_processors.values()
++        ):
+             processor = AttnProcessor()
+         else:
+             raise ValueError(
+@@ -665,7 +727,15 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         self.set_attn_processor(processor)
+ 
+     def _set_gradient_checkpointing(self, module, value: bool = False) -> None:
+-        if isinstance(module, (CrossAttnDownBlockMotion, DownBlockMotion, CrossAttnUpBlockMotion, UpBlockMotion)):
++        if isinstance(
++            module,
++            (
++                CrossAttnDownBlockMotion,
++                DownBlockMotion,
++                CrossAttnUpBlockMotion,
++                UpBlockMotion,
++            ),
++        ):
+             module.gradient_checkpointing = value
+ 
+     # Copied from diffusers.models.unets.unet_2d_condition.UNet2DConditionModel.enable_freeu
+@@ -699,7 +769,10 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         freeu_keys = {"s1", "s2", "b1", "b2"}
+         for i, upsample_block in enumerate(self.up_blocks):
+             for k in freeu_keys:
+-                if hasattr(upsample_block, k) or getattr(upsample_block, k, None) is not None:
++                if (
++                    hasattr(upsample_block, k)
++                    or getattr(upsample_block, k, None) is not None
++                ):
+                     setattr(upsample_block, k, None)
+ 
+     # Copied from diffusers.models.unets.unet_2d_condition.UNet2DConditionModel.fuse_qkv_projections
+@@ -718,7 +791,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+ 
+         for _, attn_processor in self.attn_processors.items():
+             if "Added" in str(attn_processor.__class__.__name__):
+-                raise ValueError("`fuse_qkv_projections()` is not supported for models having added KV projections.")
++                raise ValueError(
++                    "`fuse_qkv_projections()` is not supported for models having added KV projections."
++                )
+ 
+         self.original_attn_processors = self.attn_processors
+ 
+@@ -751,6 +826,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
+         down_block_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
+         mid_block_additional_residual: Optional[torch.Tensor] = None,
++        set_adapters=None,
++        camera_motions=None,
+         return_dict: bool = True,
+     ) -> Union[UNet3DConditionOutput, Tuple[torch.Tensor]]:
+         r"""
+@@ -797,7 +874,7 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         upsample_size = None
+ 
+         if any(s % default_overall_up_factor != 0 for s in sample.shape[-2:]):
+-            logger.info("Forward upsample size to force interpolation output size.")
++            # logger.info("Forward upsample size to force interpolation output size.")
+             forward_upsample_size = True
+ 
+         # prepare attention_mask
+@@ -832,26 +909,36 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+ 
+         emb = self.time_embedding(t_emb, timestep_cond)
+         emb = emb.repeat_interleave(repeats=num_frames, dim=0)
+-        encoder_hidden_states = encoder_hidden_states.repeat_interleave(repeats=num_frames, dim=0)
+ 
+-        if self.encoder_hid_proj is not None and self.config.encoder_hid_dim_type == "ip_image_proj":
++        if (
++            self.encoder_hid_proj is not None
++            and self.config.encoder_hid_dim_type == "ip_image_proj"
++        ):
+             if "image_embeds" not in added_cond_kwargs:
+                 raise ValueError(
+                     f"{self.__class__} has the config param `encoder_hid_dim_type` set to 'ip_image_proj' which requires the keyword argument `image_embeds` to be passed in  `added_conditions`"
+                 )
+             image_embeds = added_cond_kwargs.get("image_embeds")
+             image_embeds = self.encoder_hid_proj(image_embeds)
+-            image_embeds = [image_embed.repeat_interleave(repeats=num_frames, dim=0) for image_embed in image_embeds]
++            image_embeds = [
++                image_embed.repeat_interleave(repeats=num_frames, dim=0)
++                for image_embed in image_embeds
++            ]
+             encoder_hidden_states = (encoder_hidden_states, image_embeds)
+ 
+         # 2. pre-process
+-        sample = sample.permute(0, 2, 1, 3, 4).reshape((sample.shape[0] * num_frames, -1) + sample.shape[3:])
++        sample = sample.permute(0, 2, 1, 3, 4).reshape(
++            (sample.shape[0] * num_frames, -1) + sample.shape[3:]
++        )
+         sample = self.conv_in(sample)
+ 
+         # 3. down
+         down_block_res_samples = (sample,)
+         for downsample_block in self.down_blocks:
+-            if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
++            if (
++                hasattr(downsample_block, "has_cross_attention")
++                and downsample_block.has_cross_attention
++            ):
+                 sample, res_samples = downsample_block(
+                     hidden_states=sample,
+                     temb=emb,
+@@ -859,9 +946,17 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+                     attention_mask=attention_mask,
+                     num_frames=num_frames,
+                     cross_attention_kwargs=cross_attention_kwargs,
++                    set_adapters=set_adapters,
++                    camera_motions=camera_motions,
+                 )
+             else:
+-                sample, res_samples = downsample_block(hidden_states=sample, temb=emb, num_frames=num_frames)
++                sample, res_samples = downsample_block(
++                    hidden_states=sample,
++                    temb=emb,
++                    num_frames=num_frames,
++                    set_adapters=set_adapters,
++                    camera_motions=camera_motions,
++                )
+ 
+             down_block_res_samples += res_samples
+ 
+@@ -871,7 +966,9 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+             for down_block_res_sample, down_block_additional_residual in zip(
+                 down_block_res_samples, down_block_additional_residuals
+             ):
+-                down_block_res_sample = down_block_res_sample + down_block_additional_residual
++                down_block_res_sample = (
++                    down_block_res_sample + down_block_additional_residual
++                )
+                 new_down_block_res_samples += (down_block_res_sample,)
+ 
+             down_block_res_samples = new_down_block_res_samples
+@@ -887,6 +984,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+                     attention_mask=attention_mask,
+                     num_frames=num_frames,
+                     cross_attention_kwargs=cross_attention_kwargs,
++                    set_adapters=set_adapters,
++                    camera_motions=camera_motions,
+                 )
+             else:
+                 sample = self.mid_block(
+@@ -895,6 +994,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+                     encoder_hidden_states=encoder_hidden_states,
+                     attention_mask=attention_mask,
+                     cross_attention_kwargs=cross_attention_kwargs,
++                    set_adapters=set_adapters,
++                    camera_motions=camera_motions,
+                 )
+ 
+         if mid_block_additional_residual is not None:
+@@ -905,14 +1006,19 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+             is_final_block = i == len(self.up_blocks) - 1
+ 
+             res_samples = down_block_res_samples[-len(upsample_block.resnets) :]
+-            down_block_res_samples = down_block_res_samples[: -len(upsample_block.resnets)]
++            down_block_res_samples = down_block_res_samples[
++                : -len(upsample_block.resnets)
++            ]
+ 
+             # if we have not reached the final block and need to forward the
+             # upsample size, we do it here
+             if not is_final_block and forward_upsample_size:
+                 upsample_size = down_block_res_samples[-1].shape[2:]
+ 
+-            if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
++            if (
++                hasattr(upsample_block, "has_cross_attention")
++                and upsample_block.has_cross_attention
++            ):
+                 sample = upsample_block(
+                     hidden_states=sample,
+                     temb=emb,
+@@ -922,6 +1028,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+                     attention_mask=attention_mask,
+                     num_frames=num_frames,
+                     cross_attention_kwargs=cross_attention_kwargs,
++                    set_adapters=set_adapters,
++                    camera_motions=camera_motions,
+                 )
+             else:
+                 sample = upsample_block(
+@@ -930,6 +1038,8 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+                     res_hidden_states_tuple=res_samples,
+                     upsample_size=upsample_size,
+                     num_frames=num_frames,
++                    set_adapters=set_adapters,
++                    camera_motions=camera_motions,
+                 )
+ 
+         # 6. post-process
+@@ -940,7 +1050,11 @@ class UNetMotionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
+         sample = self.conv_out(sample)
+ 
+         # reshape to (batch, channel, framerate, width, height)
+-        sample = sample[None, :].reshape((-1, num_frames) + sample.shape[1:]).permute(0, 2, 1, 3, 4)
++        sample = (
++            sample[None, :]
++            .reshape((-1, num_frames) + sample.shape[1:])
++            .permute(0, 2, 1, 3, 4)
++        )
+ 
+         if not return_dict:
+             return (sample,)

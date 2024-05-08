@@ -1,3 +1,9 @@
+"""
+Text variant for text2video
+
+Author: Josef Kuchař
+"""
+
 import diffusers
 import warnings
 import coloredlogs
@@ -5,12 +11,15 @@ import logging
 from args import parse_args
 from text2video import generate_video
 import json
-import jsonschema
 from scenario import generate_scenario, validate_scenario, ScenarioValidationError
 import os
 
 
 def text2scenario(args):
+    """
+    Generate scenario from text
+    :param args: Arguments
+    """
     try:
         # Generate scenario
         scenario = generate_scenario(args.prompt)
@@ -27,6 +36,11 @@ def text2scenario(args):
 
 
 def scenario2video(args):
+    """
+    Generate video from scenario
+    :param args: Arguments
+    """
+
     # Load scenario
     scenario = json.load(args.scenario)
 

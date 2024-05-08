@@ -1,3 +1,9 @@
+"""
+Main diffusion pipeline
+
+Author: Josef Kuchař
+"""
+
 from diffusers import AutoencoderKL, MotionAdapter, ControlNetModel
 from diffusers.pipelines import DiffusionPipeline, StableDiffusionPipeline
 from diffusers.schedulers import DPMSolverMultistepScheduler

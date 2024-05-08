@@ -1,5 +1,11 @@
+"""
+Text to video generation - highest level
+
+Author: Josef Kuchař
+"""
+
 import logging
-from priorMDM.infer import main
+from priorMDM.infer import generate_motion
 from diffusion import create_pipeline, generate_scene
 from conditioning import generate_conditioning_frames
 from config import config
@@ -13,6 +19,16 @@ logger = logging.getLogger(__name__)
 def generate_video(
     args: dotdict, scenario: dict, result_path: str, conditioning_path: str
 ):
+    """
+    Generate complete video from scenario
+
+    :param args: Arguments
+    :param scenario: Scenario
+    :param result_path: Path to save the result
+    :param conditioning_path: Path to save the conditioning frames
+    :return: List of IP images
+    """
+
     pipeline = create_pipeline(args)
     video = []
     video_conditioning = []
@@ -24,7 +40,7 @@ def generate_video(
                 (action["motion_description"], action["length"] * config["mdm_fps"])
                 for action in scene["actions"]
             ]
-            results = main(prompts)
+            results = generate_motion(prompts)
             motion = results["motion"][0]
             lengths = results["lengths"]
 

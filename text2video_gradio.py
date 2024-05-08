@@ -1,3 +1,9 @@
+"""
+Gradio interface for text2video
+
+Author: Josef Kuchař
+"""
+
 import gradio as gr
 import tempfile
 from text2video import generate_video

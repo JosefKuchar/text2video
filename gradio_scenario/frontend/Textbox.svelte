@@ -1,5 +1,5 @@
 <!-- Copied from @gradio/textbox -->
-<!-- Added number type -->
+<!-- Tweaked styling -->
 
 <script lang="ts">
   import {
@@ -136,7 +136,7 @@
   }
 
   async function resize(
-    event: Event | { target: HTMLTextAreaElement | HTMLInputElement }
+    event: Event | { target: HTMLTextAreaElement | HTMLInputElement },
   ): Promise<void> {
     await tick();
     if (lines === max_lines) return;
@@ -166,7 +166,7 @@
 
   function text_area_resize(
     _el: HTMLTextAreaElement,
-    _value: string
+    _value: string,
   ): any | undefined {
     if (lines === max_lines) return;
     _el.style.overflowY = "scroll";

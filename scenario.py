@@ -1,5 +1,7 @@
 """
-TODO: Description
+Scenario generation and validation
+
+Author: Josef Kuchař
 """
 
 from llama_cpp import Llama
@@ -92,9 +94,9 @@ def validate_scenario(scenario: dict, demo=False):
         for j, action in enumerate(scene["actions"]):
             total_length += action["length"]
             scene_length += action["length"]
-            if action["length"] <= 0:
+            if action["length"] < 3 or action["length"] > 10:
                 raise ScenarioValidationError(
-                    f"Action #{j + 1} in scene #{i + 1} must have a positive length"
+                    f"Action #{j + 1} in scene #{i + 1} must have a length between 3 and 10 seconds"
                 )
             if len(action["scene_description"]) == 0:
                 raise ScenarioValidationError(

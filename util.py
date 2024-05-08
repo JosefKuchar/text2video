@@ -1,5 +1,7 @@
 """
 Various util functions
+
+Author: Josef Kuchař
 """
 
 import cv2

@@ -1,3 +1,10 @@
+"""
+Embedding manager
+
+Author: Josef Kuchař
+"""
+
+
 from util import get_overlap
 from compel import Compel
 import torch

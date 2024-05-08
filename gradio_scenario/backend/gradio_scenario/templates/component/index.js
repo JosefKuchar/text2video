@@ -6513,7 +6513,7 @@ function os(n, e) {
       /*interactive*/
       e[11]
     ),
-    minimum: 2,
+    minimum: 3,
     maximum: 10,
     container: !1,
     label: "Length (seconds) *"

@@ -36,7 +36,7 @@ classifiers = [
 dev = ["build", "twine"]
 
 [tool.hatch.build]
-artifacts = ["/backend/gradio_scenario/templates", "*.pyi", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates"]
+artifacts = ["/backend/gradio_scenario/templates", "*.pyi", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates", "backend/gradio_scenario/templates"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["/backend/gradio_scenario"]

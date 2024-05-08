@@ -1,3 +1,9 @@
+"""
+Command line argument parser for text2video_cmd
+
+Author: Josef Kuchař
+"""
+
 import argparse
 from config import config
 

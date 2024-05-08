@@ -1,3 +1,9 @@
+"""
+Configuration
+
+Author: Josef Kuchař
+"""
+
 # Default params
 config = {
     "guidance_scale": 1.0,  # CFG - 1.0 is recommended for AnimateDiff lightning

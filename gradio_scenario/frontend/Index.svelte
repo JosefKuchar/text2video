@@ -1,3 +1,10 @@
+<!--
+Gradio scenario component
+
+Author: Josef Kuchař
+
+SVG icon from: https://www.svgrepo.com/svg/439744/drag-horizontal
+-->
 <svelte:options accessors={true} />
 
 <script lang="ts">
@@ -12,8 +19,6 @@
   import { BaseButton } from "@gradio/button";
   import BaseTextbox from "./Textbox.svelte";
   import Slider from "@gradio/slider";
-
-  /* https://www.svgrepo.com/svg/439744/drag-horizontal */
 
   export let gradio: Gradio<{
     change: never;
@@ -47,7 +52,7 @@
         return Math.max(
           acc,
           scene.id,
-          ...scene.actions.map((action) => action.id)
+          ...scene.actions.map((action) => action.id),
         );
       }, 0) + 1;
   }
@@ -59,6 +64,7 @@
     }
   }
 
+  /*** Copy functionality inspired by: https://www.npmjs.com/package/@gradio/json */
   function copy_feedback(): void {
     copied = true;
     if (timer) clearTimeout(timer);
@@ -88,7 +94,9 @@
     a.remove();
     copy_feedback();
   }
+  /***/
 
+  /*** Taken from svelte-dnd-action examples - https://github.com/isaacHagoel/svelte-dnd-action */
   function handleConsider(e, sceneIndex = undefined) {
     const {
       items: newItems,
@@ -128,6 +136,7 @@
     e.preventDefault();
     dragDisabled = false;
   }
+  /***/
 
   const flipDurationMs = 200;
   let dragDisabled = true;
@@ -243,7 +252,7 @@
                   <BaseButton
                     on:click={() => {
                       value[i].actions = value[i].actions.filter(
-                        (_, index) => index !== j
+                        (_, index) => index !== j,
                       );
                     }}><div class="icon-button"><Trash /></div></BaseButton
                   >
@@ -297,7 +306,7 @@
                 <Slider
                   {gradio}
                   {interactive}
-                  minimum={2}
+                  minimum={3}
                   maximum={10}
                   bind:value={value[i].actions[j].length}
                   on:input={handle_change}

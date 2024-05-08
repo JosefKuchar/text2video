@@ -1,6 +1,8 @@
 """
 Upscale video frames using Real ESRGAN (https://github.com/xinntao/Real-ESRGAN)
 
+Author: Josef Kuchař
+
 Parameters taken from https://github.com/xinntao/Real-ESRGAN/blob/master/inference_realesrgan.py
 """
 
